@@ -8,6 +8,9 @@ import cupy as cp
 from gss.cacgmm.cacg_trainer import ComplexAngularCentralGaussianTrainer
 from gss.cacgmm.cacgmm import CACGMM
 from gss.cacgmm.utils import estimate_mixture_weight, normalize_observation
+from gss.utils.logging_utils import get_logger
+
+logger = get_logger()
 
 
 class CACGMMTrainer:

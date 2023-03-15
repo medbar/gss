@@ -19,15 +19,19 @@ from gss.utils.data_utils import (
     start_end_context_frames,
 )
 
-logging.basicConfig(
-    format="%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
-    datefmt="%Y-%m-%d:%H:%M:%S",
-    level=logging.INFO,
-)
+from gss.utils.logging_utils import get_logger
+
+logger = get_logger()
+
+# logging.basicConfig(
+#     format="%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
+#     datefmt="%Y-%m-%d:%H:%M:%S",
+#     level=logging.INFO,
+# )
 
 
 def get_enhancer(
-    cuts,
+    cuts: CutSet,
     context_duration=15,  # 15 seconds
     wpe=True,
     wpe_tabs=10,
@@ -43,6 +47,10 @@ def get_enhancer(
     bf_drop_context=True,
     postfilter=None,
 ):
+    if logger.level <= 10:
+        logger.debug(
+            f"Geting enhancer for {cuts.describe(full=True)}" f"{context_duration = }"
+        )
     assert wpe is True or wpe is False, wpe
     assert len(cuts) > 0
 
@@ -132,12 +140,14 @@ class Enhancer:
         Enhance the given CutSet.
         """
         num_error = 0
-        out_cuts = []  # list of enhanced cuts
+        # out_cuts = []  # list of enhanced cuts
 
         # Create the dataset, sampler, and data loader
         gss_dataset = GssDataset(
             context_duration=self.context_duration, activity=self.activity
         )
+        # round robin sampler, which create a batches for one speaker
+        # all from the same recording and speaker
         gss_sampler = create_sampler(
             cuts,
             max_duration=max_batch_duration,
@@ -282,8 +292,9 @@ class Enhancer:
     def enhance_batch(
         self, obs, activity, speaker_id, num_chunks=1, left_context=0, right_context=0
     ):
-
-        logging.debug(f"Converting activity to frequency domain")
+        logging.debug(
+            f"Converting activity to frequency domain. time {activity.shape = }"
+        )
         activity_freq = activity_time_to_frequency(
             activity,
             stft_window_length=self.stft_size,
@@ -291,30 +302,32 @@ class Enhancer:
             stft_fading=self.stft_fading,
             stft_pad=True,
         )
-
+        logging.debug(f"freq activity.shape = {activity_freq.shape}")
         # Convert to cupy array (putting it on the GPU)
         obs = cp.asarray(obs)
 
-        logging.debug(f"Computing STFT")
+        logging.debug(f"Computing STFT for {obs.shape = }")
         Obs = self.stft(obs)
 
         D, T, F = Obs.shape
 
         # Process observation in chunks
         chunk_size = int(np.ceil(T / num_chunks))
+        logging.debug(f"Split input signal to {num_chunks} chunks. {chunk_size = }. ")
         masks = []
         for i in range(num_chunks):
             st = i * chunk_size
             en = min(T, (i + 1) * chunk_size)
             Obs_chunk = Obs[:, st:en, :]
+            logging.debug(f"Compute GSS mask for {i} chunk. |0--[{st}:{en}]--{T}]")
 
-            logging.debug(f"Applying WPE")
             if self.wpe_block is not None:
+                logging.debug("Applying WPE")
                 Obs_chunk = self.wpe_block(Obs_chunk)
                 # Replace the chunk in the original array (to save memory)
                 Obs[:, st:en, :] = Obs_chunk
 
-            logging.debug(f"Computing GSS masks")
+            logging.debug("Computing GSS masks")
             masks_chunk = self.gss_block(Obs_chunk, activity_freq[:, st:en])
             masks.append(masks_chunk)
 
@@ -335,15 +348,20 @@ class Enhancer:
             masks[:, :left_context_frames, :] = 0
             if right_context_frames > 0:
                 masks[:, -right_context_frames:, :] = 0
-
         target_mask = masks[speaker_id]
         distortion_mask = cp.sum(masks, axis=0) - target_mask
+
+        logging.debug(
+            f"Target speaker id is {speaker_id}. "
+            f"{target_mask.sum()=}, {distortion_mask.sum()=}"
+        )
 
         logging.debug("Applying beamforming with computed masks")
         X_hat = []
         for i in range(num_chunks):
             st = i * chunk_size
             en = min(T, (i + 1) * chunk_size)
+            logging.debug(f"Beamforming {i} chunk. |0--[{st}:{en}]--{T}]")
             X_hat_chunk = self.bf_block(
                 Obs[:, st:en, :],
                 target_mask=target_mask[st:en],
@@ -361,5 +379,5 @@ class Enhancer:
 
         # Trim x_hat to original length of cut
         x_hat = x_hat[:, left_context:-right_context]
-
+        logging.debug(f"Output signal shape is {x_hat.shape}")
         return x_hat

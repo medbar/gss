@@ -12,13 +12,9 @@ from lhotse.utils import fastcopy
 from gss.bin.modes.cli_base import cli
 from gss.core.enhancer import get_enhancer
 from gss.utils.data_utils import post_process_manifests
+from gss.utils.logging_utils import configure_logging, get_logger
 
-logging.basicConfig(
-    format="%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
-    datefmt="%Y-%m-%d:%H:%M:%S",
-    level=logging.INFO,
-)
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 
 @cli.group()
@@ -28,6 +24,9 @@ def enhance():
 
 
 def common_options(func):
+    @click.option(
+        "--log-level", "-c", type=str, default="INFO", help="DEBUG, INFO, etc..."
+    )
     @click.option(
         "--channels",
         "-c",
@@ -171,6 +170,7 @@ def cuts_(
     profiler_output,
     force_overwrite,
     duration_tolerance,
+    log_level,
 ):
     """
     Enhance segments (represented by cuts).
@@ -179,6 +179,7 @@ def cuts_(
         CUTS_PER_SEGMENT: Lhotse cuts manifest containing cuts per segment (e.g. obtained using `trim-to-supervisions`)
         ENHANCED_DIR: Output directory for enhanced audio files
     """
+    configure_logging(log_level=log_level)
     if profiler_output is not None:
         import atexit
         import cProfile
@@ -286,6 +287,7 @@ def recording_(
     enhanced_manifest,
     profiler_output,
     force_overwrite,
+    log_level,
 ):
     """
     Enhance a single recording using an RTTM file.
@@ -294,6 +296,7 @@ def recording_(
         RTTM: Path to an RTTM file containing speech activity
         ENHANCED_DIR: Output directory for enhanced audio files
     """
+    configure_logging(log_level=log_level)
     if profiler_output is not None:
         import atexit
         import cProfile

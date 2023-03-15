@@ -8,6 +8,8 @@ import cupy as cp
 import numpy as np
 
 from gss.utils.numpy_utils import segment_axis
+from gss.utils.logging_utils import get_logger
+logger = get_logger()
 
 
 def get_working_shape(shape):
@@ -21,7 +23,8 @@ def _stable_solve(A, B):
     assert A.shape[-1] == B.shape[-2], (A.shape, B.shape)
     try:
         return cp.linalg.solve(A, B)
-    except:
+    except Exception as e:
+        logger.debug(f"Catched exception {e}")
         shape_A, shape_B = A.shape, B.shape
         assert shape_A[:-2] == shape_A[:-2]
         working_shape_A = get_working_shape(shape_A)

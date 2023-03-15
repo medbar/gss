@@ -14,6 +14,9 @@ from lhotse.utils import add_durations, compute_num_samples
 from torch.utils.data import Dataset
 
 from gss.utils.numpy_utils import segment_axis
+from gss.utils.logging_utils import get_logger
+
+logger = get_logger()
 
 
 class GssDataset(Dataset):
@@ -56,6 +59,7 @@ class GssDataset(Dataset):
 
         new_cuts = orig_cuts[:]
 
+        # TODO extend_by can capture target speaker's speech.
         # Extend the first and last cuts by the context duration.
         new_cuts[0] = new_cuts[0].extend_by(
             duration=self.context_duration,
@@ -74,7 +78,11 @@ class GssDataset(Dataset):
 
         concatenated = None
         activity = []
+        num_cuts = 0
+        num_all_sups = 0
         for new_cut in new_cuts:
+            num_cuts += 1
+            num_all_sups += len(num_cuts.supervisions)
             concatenated = (
                 new_cut
                 if concatenated is None
@@ -88,6 +96,11 @@ class GssDataset(Dataset):
         # Load audio
         audio = concatenated.load_audio()
         activity = np.concatenate(activity, axis=1)
+        logger.debug(
+            f"Segments from {left_context = }s to {right_context = }s, "
+            f"{num_cuts=}, {num_all_sups=}"
+            f"{audio.shape=}, active frames per speaker {activity.sum(axis=1)}"
+        )
 
         return {
             "audio": audio,
@@ -118,6 +131,18 @@ class GssDataset(Dataset):
         recording = cuts[0].recording_id
         assert all(cut.supervisions[0].speaker == speaker for cut in cuts)
         assert all(cut.recording_id == recording for cut in cuts)
+        self._debug_call_init(cuts)
+
+    def _debug_call_init(self, cuts: CutSet) -> None:
+        if logger.level > 10:
+            return
+        speaker = cuts[0].supervisions[0].speaker
+        recording = cuts[0].recording_id
+        num_sups = sum(len(c.supervisions) for c in cuts)
+        logger.debug(
+            f"Processing batch for recording {recording} speaker {speaker}. "
+            f"Total number of supervisions is {num_sups}."
+        )
 
 
 def create_sampler(

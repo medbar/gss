@@ -2,6 +2,9 @@ from dataclasses import dataclass
 
 import numpy as np
 from lhotse import CutSet
+from gss.utils.logging_utils import get_logger
+
+logger = get_logger()
 
 
 @dataclass  # (hash=True)
@@ -10,7 +13,7 @@ class Activity:
     cuts: "CutSet" = None
 
     def __post_init__(self):
-        self.activity = {}
+        self.activity = {}  # Is it required?
         self.speaker_to_idx_map = {}
         for cut in self.cuts:
             self.speaker_to_idx_map[cut.recording_id] = {
@@ -20,6 +23,10 @@ class Activity:
                 )
             }
         self.supervisions_index = self.cuts.index_supervisions()
+        logger.info(
+            f"Initialized Activity. {len(self.supervisions_index) = }. "
+            f"{self.garbage_class = }"
+        )
 
     def get_activity(self, session_id, start_time, duration):
         cut = self.cuts[session_id].truncate(
@@ -34,4 +41,11 @@ class Activity:
             activity_mask = np.r_[activity_mask, [np.zeros_like(activity_mask[0])]]
         elif self.garbage_class is True:
             activity_mask = np.r_[activity_mask, [np.ones_like(activity_mask[0])]]
-        return activity_mask, self.speaker_to_idx_map[session_id]
+        idx = self.speaker_to_idx_map[session_id]
+        logger.debug(
+            f"for cut({session_id=} {start_time=} {duration=}) "
+            f"num_supervisions = {len(cut.supervisions)}, "
+            f"{activity_mask.shape = }, {activity_mask.sum(axis=1) = },"
+            f" {idx = }"
+        )
+        return activity_mask, idx
