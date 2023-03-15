@@ -9,6 +9,7 @@ import numpy as np
 
 from gss.utils.numpy_utils import segment_axis
 from gss.utils.logging_utils import get_logger
+
 logger = get_logger()
 
 

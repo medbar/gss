@@ -13,10 +13,11 @@ logger = get_logger()
 class GSS:
     iterations: int
     iterations_post: int
+    eps: int = 1e-10
 
     def __call__(self, Obs, acitivity_freq):
         initialization = cp.asarray(acitivity_freq, dtype=cp.float64)
-        initialization = cp.where(initialization == 0, 1e-10, initialization)
+        initialization = cp.where(initialization == 0, self.eps, initialization)
         initialization = initialization / cp.sum(initialization, keepdims=True, axis=0)
         initialization = cp.repeat(initialization[None, ...], 513, axis=0)
 
@@ -57,15 +58,17 @@ class GSS:
         if logger.level > 10:
             return
         F, D, T = initialization.shape
-        sparce_init = initialization[0, 0, :: T // 10]
         logger.debug(
-            f"initialization for GMM something like {sparce_init}. "
-            f"{initialization.shape = }"
+            f"initialization ({initialization.shape=}) for GMM is \n"
+            f"{initialization[0, ...].min(axis=-1) = }.\n"
+            f"{initialization[0, ...].max(axis=-1) = }.\n"
+            f"{initialization[0, ...].mean(axis=-1) = }. "
         )
-        sam_diff = source_active_mask[..., :-1] - source_active_mask[..., 1:]
+        sam_int = cp.asarray(source_active_mask[0, ...], dtype=cp.int16)
+        sam_diff = sam_int[..., :-1] - sam_int[..., 1:]
         logger.debug(
-            f"{source_active_mask.shape = }. {source_active_mask.sum() = }"
+            f"{source_active_mask.shape = }. {source_active_mask[0, ...].sum(axis=-1) = }\n"
             f"Source activities changes :\n"
-            f"- from one to zero {(sam_diff==1).sum()} times.\n"
-            f"- from zero to one {(sam_diff==-1).sum()} times."
+            f"- from one to zero {(sam_diff==1).sum(axis=-1)} times.\n"
+            f"- from zero to one {(sam_diff==-1).sum(axis=-1)} times."
         )

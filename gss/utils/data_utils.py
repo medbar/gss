@@ -59,6 +59,8 @@ class GssDataset(Dataset):
 
         new_cuts = orig_cuts[:]
 
+        logger.debug(f"batch borders: {new_cuts[0].start = }, {new_cuts[-1].end = }")
+
         # TODO extend_by can capture target speaker's speech.
         # Extend the first and last cuts by the context duration.
         new_cuts[0] = new_cuts[0].extend_by(
@@ -82,7 +84,7 @@ class GssDataset(Dataset):
         num_all_sups = 0
         for new_cut in new_cuts:
             num_cuts += 1
-            num_all_sups += len(num_cuts.supervisions)
+            num_all_sups += len(new_cut.supervisions)
             concatenated = (
                 new_cut
                 if concatenated is None
@@ -98,7 +100,7 @@ class GssDataset(Dataset):
         activity = np.concatenate(activity, axis=1)
         logger.debug(
             f"Segments from {left_context = }s to {right_context = }s, "
-            f"{num_cuts=}, {num_all_sups=}"
+            f"{num_cuts=}, {num_all_sups=}, "
             f"{audio.shape=}, active frames per speaker {activity.sum(axis=1)}"
         )
 
@@ -139,8 +141,9 @@ class GssDataset(Dataset):
         speaker = cuts[0].supervisions[0].speaker
         recording = cuts[0].recording_id
         num_sups = sum(len(c.supervisions) for c in cuts)
+
         logger.debug(
-            f"Processing batch for recording {recording} speaker {speaker}. "
+            f"Start processing batch for recording {recording} speaker {speaker}. "
             f"Total number of supervisions is {num_sups}."
         )
 

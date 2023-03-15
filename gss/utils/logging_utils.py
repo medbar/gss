@@ -26,7 +26,7 @@ def configure_logging(log_level, log_path=None):
             }
         },
         "handlers": handlers,
-        "loggers": {"gss": {"handlers": handlers.keys(), "level": log_level}},
+        "loggers": {"gss": {"level": log_level}},
         "root": {"handlers": handlers.keys(), "level": log_level},
     }
     logging.config.dictConfig(CONFIG)

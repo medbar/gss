@@ -1,4 +1,5 @@
 import logging
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -139,6 +140,11 @@ class Enhancer:
         """
         Enhance the given CutSet.
         """
+        logger.debug(
+            f"enhance_cuts: {exp_dir=}, {max_batch_duration=}, "
+            f"{max_batch_cuts=}, {num_buckets=}, {num_workers=},"
+            f"{force_overwrite=}"
+        )
         num_error = 0
         # out_cuts = []  # list of enhanced cuts
 
@@ -256,7 +262,12 @@ class Enhancer:
                             f"Out of memory error while processing the batch. Trying again with {num_chunks} chunks."
                         )
                     except Exception as e:
-                        logging.error(f"Error enhancing batch: {e}")
+                        t = "".join(traceback.format_exception(e))
+                        logging.warning(
+                            f"Catched enhancer batch error: {e}.\n Traceback: {t}.\n"
+                            f"!!!BATCH {batch_idx} was SKIPPED!!!"
+                        )
+                        # traceback.print_exception(e)
                         num_error += 1
                         # Keep the original signal (only load channel 0)
                         # NOTE (@desh2608): One possible issue here is that the whole batch
@@ -308,18 +319,20 @@ class Enhancer:
 
         logging.debug(f"Computing STFT for {obs.shape = }")
         Obs = self.stft(obs)
-
+        logging.debug(f"STFT shape is {Obs.shape}")
         D, T, F = Obs.shape
 
         # Process observation in chunks
         chunk_size = int(np.ceil(T / num_chunks))
-        logging.debug(f"Split input signal to {num_chunks} chunks. {chunk_size = }. ")
+        logging.debug(f"Split input signal into {num_chunks} chunks. {chunk_size = }. ")
         masks = []
         for i in range(num_chunks):
             st = i * chunk_size
             en = min(T, (i + 1) * chunk_size)
             Obs_chunk = Obs[:, st:en, :]
-            logging.debug(f"Compute GSS mask for {i} chunk. |0--[{st}:{en}]--{T}]")
+            logging.debug(
+                f"Compute GSS mask for the {i}'th chunk. |0--[{st}:{en}]--{T}|"
+            )
 
             if self.wpe_block is not None:
                 logging.debug("Applying WPE")
@@ -361,7 +374,7 @@ class Enhancer:
         for i in range(num_chunks):
             st = i * chunk_size
             en = min(T, (i + 1) * chunk_size)
-            logging.debug(f"Beamforming {i} chunk. |0--[{st}:{en}]--{T}]")
+            logging.debug(f"Beamforming the {i}'th chunk. |0--[{st}:{en}]--{T}]")
             X_hat_chunk = self.bf_block(
                 Obs[:, st:en, :],
                 target_mask=target_mask[st:en],
