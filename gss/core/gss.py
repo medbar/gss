@@ -16,6 +16,8 @@ class GSS:
     eps: int = 1e-10
 
     def __call__(self, Obs, acitivity_freq):
+        # acitivity_freq.shape is [num_speakers, num_frames]
+        assert (acitivity_freq <= 1).all(), f"bad acitivity_freq {acitivity_freq.max(axis=-1) = }"
         initialization = cp.asarray(acitivity_freq, dtype=cp.float64)
         initialization = cp.where(initialization == 0, self.eps, initialization)
         initialization = initialization / cp.sum(initialization, keepdims=True, axis=0)
