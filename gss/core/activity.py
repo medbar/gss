@@ -11,6 +11,7 @@ logger = get_logger()
 class Activity:
     garbage_class: bool = False
     cuts: "CutSet" = None
+    activity_mask_by: str = "speaker"  # [speaker, alignment]
 
     def __post_init__(self):
         self.activity = {}  # Is it required?
@@ -25,6 +26,7 @@ class Activity:
         self.supervisions_index = self.cuts.index_supervisions()
         logger.info(
             f"Initialized Activity. {len(self.supervisions_index) = }. "
+            f"{self.speaker_to_idx_map = }. "
             f"{self.garbage_class = }"
         )
 
@@ -34,9 +36,20 @@ class Activity:
             duration=duration,
             _supervisions_index=self.supervisions_index,
         )
-        activity_mask = cut.speakers_audio_mask(
-            speaker_to_idx_map=self.speaker_to_idx_map[session_id]
-        )
+        if self.activity_mask_by == "speaker":
+            activity_mask = cut.speakers_audio_mask(
+                speaker_to_idx_map=self.speaker_to_idx_map[session_id]
+            )
+        elif self.activity_mask_by == "alignment":
+            activity_mask = cut.speakers_audio_mask(
+                speaker_to_idx_map=self.speaker_to_idx_map[session_id],
+                use_alignment_if_exists="word",
+            )
+            print(activity_mask)
+            raise NotImplementedError("Not tested yet")
+        else:
+            raise RuntimeError(f"Wrong {self.activity_mask_by = }")
+
         if self.garbage_class is False:
             activity_mask = np.r_[activity_mask, [np.zeros_like(activity_mask[0])]]
         elif self.garbage_class is True:

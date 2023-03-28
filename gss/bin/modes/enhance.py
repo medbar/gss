@@ -151,6 +151,12 @@ def common_options(func):
     help="Maximum mismatch between channel durations to allow. Some corpora like CHiME-6 "
     "need a large value, e.g., 2 seconds",
 )
+@click.option(
+    "--weights-manifest",
+    type=click.Path(),
+    default=None,
+    help="Path to the manifest containing vad_weights for the recordings",
+)
 def cuts_(
     cuts_per_recording,
     cuts_per_segment,
@@ -171,6 +177,7 @@ def cuts_(
     force_overwrite,
     duration_tolerance,
     log_level,
+    weights_manifest,
 ):
     """
     Enhance segments (represented by cuts).
@@ -202,8 +209,12 @@ def cuts_(
     enhanced_dir = Path(enhanced_dir)
     enhanced_dir.mkdir(exist_ok=True, parents=True)
 
-    cuts = load_manifest_lazy(cuts_per_recording)
+    activity_cuts = load_manifest_lazy(cuts_per_recording)
     cuts_per_segment = load_manifest_lazy(cuts_per_segment)
+    if weights_manifest is not None:
+        weights_cuts = load_manifest_lazy(weights_manifest)
+    else:
+        weights_cuts = None
 
     if channels is not None:
         channels = [int(c) for c in channels.split(",")]
@@ -212,7 +223,9 @@ def cuts_(
         )
 
     # Paranoia mode: ensure that cuts_per_recording have ids same as the recording_id
-    cuts = CutSet.from_cuts(cut.with_id(cut.recording_id) for cut in cuts)
+    activity_cuts = CutSet.from_cuts(
+        cut.with_id(cut.recording_id) for cut in activity_cuts
+    )
 
     logger.info("Aplying min/max segment length constraints")
     cuts_per_segment = cuts_per_segment.filter(
@@ -221,11 +234,12 @@ def cuts_(
 
     logger.info("Initializing GSS enhancer")
     enhancer = get_enhancer(
-        cuts=cuts,
+        activity_cuts=activity_cuts,
         bss_iterations=bss_iterations,
         context_duration=context_duration,
         activity_garbage_class=use_garbage_class,
         wpe=use_wpe,
+        weights_cuts=weights_cuts,
     )
 
     logger.info(f"Enhancing {len(frozenset(c.id for c in cuts_per_segment))} segments")
@@ -345,7 +359,7 @@ def recording_(
 
     logger.info("Initializing GSS enhancer")
     enhancer = get_enhancer(
-        cuts=cuts,
+        activity_cuts=cuts,
         bss_iterations=bss_iterations,
         context_duration=context_duration,
         activity_garbage_class=use_garbage_class,

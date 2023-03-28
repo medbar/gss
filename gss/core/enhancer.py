@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 
 import cupy as cp
 import numpy as np
@@ -12,13 +13,14 @@ from lhotse import CutSet, Recording, RecordingSet, SupervisionSegment, Supervis
 from lhotse.utils import add_durations, compute_num_samples
 from torch.utils.data import DataLoader
 
-from gss.core import GSS, WPE, Activity, Beamformer
+from gss.core import GSS, WPE, Activity, Beamformer, Weights
 from gss.utils.data_utils import (
     GssDataset,
     activity_time_to_frequency,
     create_sampler,
     start_end_context_frames,
 )
+
 
 from gss.utils.logging_utils import get_logger
 
@@ -32,7 +34,7 @@ logger = get_logger()
 
 
 def get_enhancer(
-    cuts: CutSet,
+    activity_cuts: CutSet,
     context_duration=15,  # 15 seconds
     wpe=True,
     wpe_tabs=10,
@@ -47,42 +49,61 @@ def get_enhancer(
     bss_iterations_post=1,
     bf_drop_context=True,
     postfilter=None,
+    weights_cuts=None,
 ):
     if logger.level <= 10:
         logger.debug(
-            f"Geting enhancer for {cuts.describe(full=True)}" f"{context_duration = }"
+            f"Geting enhancer for activity cuts:\n {activity_cuts.describe(full=True)}"
+            f"{context_duration = }"
         )
     assert wpe is True or wpe is False, wpe
-    assert len(cuts) > 0
+    assert len(activity_cuts) > 0
 
-    sampling_rate = cuts[0].recording.sampling_rate
-
-    return Enhancer(
-        context_duration=context_duration,
-        wpe_block=WPE(
+    sampling_rate = activity_cuts[0].recording.sampling_rate
+    if wpe:
+        wpe_block = WPE(
             taps=wpe_tabs,
             delay=wpe_delay,
             iterations=wpe_iterations,
             psd_context=wpe_psd_context,
         )
-        if wpe
-        else None,
-        activity=Activity(
+    else:
+        wpe_block = None
+    activity = Activity(
+        garbage_class=activity_garbage_class,
+        cuts=activity_cuts,
+    )
+    gss_block = GSS(
+        iterations=bss_iterations,
+        iterations_post=bss_iterations_post,
+    )
+    bf_block = Beamformer(
+        postfilter=postfilter,
+    )
+    if weights_cuts is not None:
+        weights = Weights(
+            cuts=weights_cuts,
             garbage_class=activity_garbage_class,
-            cuts=cuts,
-        ),
-        gss_block=GSS(
-            iterations=bss_iterations,
-            iterations_post=bss_iterations_post,
-        ),
+            sr=sampling_rate,
+            stft_size=stft_size,
+            stft_shift=stft_shift,
+            stft_fading=stft_fading,
+            speaker_to_idx_map=activity.speaker_to_idx_map,
+        )
+    else:
+        weights = None
+    return Enhancer(
+        context_duration=context_duration,
+        wpe_block=wpe_block,
+        activity=activity,
+        gss_block=gss_block,
         bf_drop_context=bf_drop_context,
-        bf_block=Beamformer(
-            postfilter=postfilter,
-        ),
+        bf_block=bf_block,
         stft_size=stft_size,
         stft_shift=stft_shift,
         stft_fading=stft_fading,
         sampling_rate=sampling_rate,
+        weights=weights,
     )
 
 
@@ -106,6 +127,8 @@ class Enhancer:
 
     context_duration: float  # e.g. 15
     sampling_rate: int
+
+    weights: Optional[Weights] = None
 
     def stft(self, x):
         from gss.core.stft_module import stft
@@ -175,7 +198,7 @@ class Enhancer:
             offset = 0
             for cut in orig_cuts:
                 save_path = Path(
-                    f"{recording_id}-{speaker}-{round(100*cut.start):06d}_{round(100*cut.end):06d}.flac"
+                    f"{recording_id}-{speaker}-{int(100*cut.start):06d}_{int(100*cut.end):06d}.flac"
                 )
                 if force_overwrite or not (out_dir / save_path).exists():
                     st = compute_num_samples(offset, self.sampling_rate)
@@ -233,7 +256,7 @@ class Enhancer:
                 if not force_overwrite:
                     for cut in batch.orig_cuts:
                         save_path = Path(
-                            f"{batch.recording_id}-{batch.speaker}-{round(100*cut.start):06d}_{round(100*cut.end):06d}.flac"
+                            f"{batch.recording_id}-{batch.speaker}-{int(100*cut.start):06d}_{int(100*cut.end):06d}.flac"
                         )
                         file_exists.append((out_dir / save_path).exists())
 
@@ -254,6 +277,7 @@ class Enhancer:
                             num_chunks=num_chunks,
                             left_context=batch.left_context,
                             right_context=batch.right_context,
+                            weights=batch.weights,
                         )
                         break
                     except cp.cuda.memory.OutOfMemoryError:
@@ -301,7 +325,14 @@ class Enhancer:
         )
 
     def enhance_batch(
-        self, obs, activity, speaker_id, num_chunks=1, left_context=0, right_context=0
+        self,
+        obs,
+        activity,
+        speaker_id,
+        num_chunks=1,
+        left_context=0,
+        right_context=0,
+        weights=None,
     ):
         logging.debug(
             f"Converting activity to frequency domain. time {activity.shape = }"
@@ -341,7 +372,13 @@ class Enhancer:
                 Obs[:, st:en, :] = Obs_chunk
 
             logging.debug("Computing GSS masks")
-            masks_chunk = self.gss_block(Obs_chunk, activity_freq[:, st:en])
+            if weights is not None:
+                initialization = weights[..., st:en]
+            else:
+                initialization = None
+            masks_chunk = self.gss_block(
+                Obs_chunk, activity_freq[:, st:en], initialization=initialization
+            )
             masks.append(masks_chunk)
 
         masks = cp.concatenate(masks, axis=1)

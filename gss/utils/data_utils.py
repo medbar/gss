@@ -1,7 +1,7 @@
 from collections import defaultdict, namedtuple
 from math import ceil
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 from cytoolz.itertoolz import groupby
@@ -14,6 +14,7 @@ from lhotse.utils import add_durations, compute_num_samples
 from torch.utils.data import Dataset
 
 from gss.utils.numpy_utils import segment_axis
+from gss.core.weights import Weights
 from gss.utils.logging_utils import get_logger
 
 logger = get_logger()
@@ -41,10 +42,15 @@ class GssDataset(Dataset):
     """
 
     def __init__(
-        self, activity, context_duration: float = 0, num_channels: int = None
+        self,
+        activity,
+        context_duration: float = 0,
+        num_channels: int = None,
+        weights: Optional[Weights] = None,
     ) -> None:
         super().__init__()
         self.activity = activity
+        self.weights = weights
         self.context_duration = context_duration
         self.num_channels = num_channels
 
@@ -61,7 +67,6 @@ class GssDataset(Dataset):
 
         logger.debug(f"batch borders: {new_cuts[0].start = }, {new_cuts[-1].end = }")
 
-        # TODO extend_by can capture target speaker's speech.
         # Extend the first and last cuts by the context duration.
         new_cuts[0] = new_cuts[0].extend_by(
             duration=self.context_duration,
@@ -80,8 +85,10 @@ class GssDataset(Dataset):
 
         concatenated = None
         activity = []
+        weights = []
         num_cuts = 0
         num_all_sups = 0
+        spk_to_idx_map_prev = None
         for new_cut in new_cuts:
             num_cuts += 1
             num_all_sups += len(new_cut.supervisions)
@@ -93,11 +100,28 @@ class GssDataset(Dataset):
             cut_activity, spk_to_idx_map = self.activity.get_activity(
                 new_cut.recording_id, new_cut.start, new_cut.duration
             )
+            if self.weights is not None:
+                cut_weights, spk_to_idx_map_2 = self.weights.get_weights(
+                    new_cut.recording_id, new_cut.start, new_cut.duration
+                )
+                assert (
+                    spk_to_idx_map == spk_to_idx_map_2
+                ), f"{spk_to_idx_map} != {spk_to_idx_map_2}"
+                weights.append(cut_weights)
+
+            assert (
+                spk_to_idx_map_prev is None or spk_to_idx_map == spk_to_idx_map_prev
+            ), f"{spk_to_idx_map} != {spk_to_idx_map_prev}"
+            spk_to_idx_map_prev = spk_to_idx_map
             activity.append(cut_activity)
 
         # Load audio
         audio = concatenated.load_audio()
         activity = np.concatenate(activity, axis=1)
+        if len(weights) > 0:
+            weights = np.concatenate(weights, axis=-1)
+        else:
+            weights = None
         logger.debug(
             f"Segments from {left_context = }s to {right_context = }s, "
             f"{num_cuts=}, {num_all_sups=}, "
@@ -121,6 +145,7 @@ class GssDataset(Dataset):
             "speaker": speaker,
             "speaker_idx": spk_to_idx_map[speaker],
             "recording_id": recording_id,
+            "weights": weights,
         }
 
     def _validate(self, cuts: CutSet) -> None:
@@ -138,6 +163,7 @@ class GssDataset(Dataset):
     def _debug_call_init(self, cuts: CutSet) -> None:
         if logger.level > 10:
             return
+        logger.info("Debugging info")
         speaker = cuts[0].supervisions[0].speaker
         recording = cuts[0].recording_id
         num_sups = sum(len(c.supervisions) for c in cuts)

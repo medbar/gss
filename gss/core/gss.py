@@ -15,13 +15,24 @@ class GSS:
     iterations_post: int
     eps: int = 1e-10
 
-    def __call__(self, Obs, acitivity_freq):
+    def __call__(self, Obs, acitivity_freq, initialization=None, normalize_init=True):
         # acitivity_freq.shape is [num_speakers, num_frames]
-        assert (acitivity_freq <= 1).all(), f"bad acitivity_freq {acitivity_freq.max(axis=-1) = }"
-        initialization = cp.asarray(acitivity_freq, dtype=cp.float64)
+        # initialization.shape is [513, num_speakers, num_frames] or [num_speakers, num_frames]
+        # assert (acitivity_freq <= 1).all(), f"bad acitivity_freq {acitivity_freq.max(axis=-1) = }"
+
+        if initialization is None:
+            initialization = cp.asarray(acitivity_freq, dtype=cp.float64)
+        else:
+            assert initialization.shape[-1] == acitivity_freq.shape[-1]
+            assert initialization.shape[-2] == acitivity_freq.shape[-2]
+            initialization = cp.asarray(initialization, dtype=cp.float64)
         initialization = cp.where(initialization == 0, self.eps, initialization)
-        initialization = initialization / cp.sum(initialization, keepdims=True, axis=0)
-        initialization = cp.repeat(initialization[None, ...], 513, axis=0)
+        if normalize_init:
+            initialization = initialization / cp.sum(
+                initialization, keepdims=True, axis=-2
+            )
+        if len(initialization.shape) == 2:
+            initialization = cp.repeat(initialization[None, ...], 513, axis=0)
 
         source_active_mask = cp.asarray(acitivity_freq, dtype=cp.bool)
         source_active_mask = cp.repeat(source_active_mask[None, ...], 513, axis=0)
@@ -29,6 +40,9 @@ class GSS:
 
         cacGMM = CACGMMTrainer()
 
+        # D - number of channels
+        # T - time
+        # F - freq
         D, T, F = Obs.shape
 
         cur = cacGMM.fit(
