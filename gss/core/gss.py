@@ -25,6 +25,7 @@ class GSS:
         else:
             assert initialization.shape[-1] == acitivity_freq.shape[-1]
             assert initialization.shape[-2] == acitivity_freq.shape[-2]
+            logger.debug(f"Using preloaded initialization")
             initialization = cp.asarray(initialization, dtype=cp.float64)
         initialization = cp.where(initialization == 0, self.eps, initialization)
         if normalize_init:

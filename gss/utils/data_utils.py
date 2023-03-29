@@ -14,7 +14,6 @@ from lhotse.utils import add_durations, compute_num_samples
 from torch.utils.data import Dataset
 
 from gss.utils.numpy_utils import segment_axis
-from gss.core.weights import Weights
 from gss.utils.logging_utils import get_logger
 
 logger = get_logger()
@@ -46,7 +45,7 @@ class GssDataset(Dataset):
         activity,
         context_duration: float = 0,
         num_channels: int = None,
-        weights: Optional[Weights] = None,
+        weights = None,
     ) -> None:
         super().__init__()
         self.activity = activity

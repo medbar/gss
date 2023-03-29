@@ -173,7 +173,9 @@ class Enhancer:
 
         # Create the dataset, sampler, and data loader
         gss_dataset = GssDataset(
-            context_duration=self.context_duration, activity=self.activity
+            context_duration=self.context_duration,
+            activity=self.activity,
+            weights=self.weights,
         )
         # round robin sampler, which create a batches for one speaker
         # all from the same recording and speaker

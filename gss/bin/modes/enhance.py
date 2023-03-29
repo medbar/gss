@@ -210,22 +210,26 @@ def cuts_(
     enhanced_dir.mkdir(exist_ok=True, parents=True)
 
     activity_cuts = load_manifest_lazy(cuts_per_recording)
-    cuts_per_segment = load_manifest_lazy(cuts_per_segment)
-    if weights_manifest is not None:
-        weights_cuts = load_manifest_lazy(weights_manifest)
-    else:
-        weights_cuts = None
+    # Paranoia mode: ensure that cuts_per_recording have ids same as the recording_id
+    activity_cuts = CutSet.from_cuts(
+        cut.with_id(cut.recording_id) for cut in activity_cuts
+    )
 
+    cuts_per_segment = load_manifest_lazy(cuts_per_segment)
     if channels is not None:
         channels = [int(c) for c in channels.split(",")]
         cuts_per_segment = CutSet.from_cuts(
             fastcopy(cut, channel=channels) for cut in cuts_per_segment
         )
 
-    # Paranoia mode: ensure that cuts_per_recording have ids same as the recording_id
-    activity_cuts = CutSet.from_cuts(
-        cut.with_id(cut.recording_id) for cut in activity_cuts
-    )
+    if weights_manifest is not None:
+        logger.info(f"Loading weights {weights_manifest}")
+        weights_cuts = CutSet.from_cuts(
+            cut.with_id(cut.recording_id)
+            for cut in load_manifest_lazy(weights_manifest)
+        )
+    else:
+        weights_cuts = None
 
     logger.info("Aplying min/max segment length constraints")
     cuts_per_segment = cuts_per_segment.filter(
