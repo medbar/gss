@@ -2,7 +2,7 @@ import functools
 import logging
 import time
 from pathlib import Path
-
+from tqdm import tqdm
 import click
 from lhotse import Recording, SupervisionSet, load_manifest_lazy
 from lhotse.audio import set_audio_duration_mismatch_tolerance
@@ -157,6 +157,13 @@ def common_options(func):
     default=None,
     help="Path to the manifest containing vad_weights for the recordings",
 )
+@click.option(
+    "--preload-audio",
+    is_flag=True,
+    default=False,
+    help="If set, we will move_to_memory audio files before processing it",
+
+)
 def cuts_(
     cuts_per_recording,
     cuts_per_segment,
@@ -178,6 +185,7 @@ def cuts_(
     duration_tolerance,
     log_level,
     weights_manifest,
+    preload_audio
 ):
     """
     Enhance segments (represented by cuts).
@@ -245,6 +253,16 @@ def cuts_(
         wpe=use_wpe,
         weights_cuts=weights_cuts,
     )
+    if preload_audio:
+        logger.info(f"Preloading audio files into memory.")
+        # cuts_per_segment.move_to_memory()
+        rec = dict()
+        for c in cuts_per_segment:
+            r = c.recording
+            if r.id not in rec:
+                rec[r.id] = r.move_to_memory()
+            c.recording = rec[r.id]
+        logger.info(f"Loaded {len(rec)} recordings")
 
     logger.info(f"Enhancing {len(frozenset(c.id for c in cuts_per_segment))} segments")
     begin = time.time()

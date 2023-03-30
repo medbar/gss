@@ -244,6 +244,7 @@ class Enhancer:
         total_processed = 0
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for batch_idx, batch in enumerate(dl):
+                # continue # for debug
                 batch = SimpleNamespace(**batch)
                 logging.info(
                     f"Processing batch {batch_idx+1} {batch.recording_id, batch.speaker}: "

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Dict, Any
 import numpy as np
@@ -45,9 +46,18 @@ class Weights:
         )
 
     def get_weights(self, session_id, start_time, duration):
+        weights_no_fading, idx = self.get_weights_no_fading(session_id, start_time, duration)
+        if not self.stft_fading:
+            return weights_no_fading, idx
+
+        pad_width = np.zeros([weights_no_fading.ndim, 2], dtype=np.int64)
+        pad_width[-1, :] = self.stft_size // self.stft_shift - 1
+        return np.pad(weights_no_fading, pad_width, mode="constant"), idx
+
+    def get_weights_no_fading(self, session_id, start_time, duration):
         # number of speakers + garbage
         idx = self.speaker_to_idx_map[session_id]
-        cut_num_frames = self._sec_to_stft_frames(duration)
+        cut_num_frames = self._sec_to_stft_frames(duration, fading=False)
         weights = [np.zeros(cut_num_frames) for _ in range(len(idx))]
         if self.garbage_class:
             weights += [np.ones(cut_num_frames)]
@@ -67,33 +77,42 @@ class Weights:
             logger.debug(
                 f"Resample vad_weights from {len(sup.vad_weights)} to {len(weight_segment)} frames."
             )
-            if self.stft_fading:
-                start_frame = self.stft_size // self.stft_shift - 1
-                end_frame = cut_num_frames - (self.stft_size // self.stft_shift - 1)
-            else:
-                start_frame = 0
-                end_frame = cut_num_frames
+            start_frame = 0
+            end_frame = cut_num_frames
+            # finding start frame
             if sup.start < 0:
-                offset = self._sec_to_stft_frames(-sup.start, fading=False)
-                logger.debug(f"Detected {sup.start = }. Start {offset = } frames.")
-                weight_segment = weight_segment[..., offset:]
+                offset_frames = self._sec_to_stft_frames(-sup.start, fading=False)
+                logger.debug(f"Detected {sup.start = }. Start {offset_frames = } frames.")
+                weight_segment = weight_segment[offset_frames:]
             else:
                 start_frame += self._sec_to_stft_frames(sup.start, fading=False)
+            start_frame = max(start_frame, 0)
+            # finding end frame
+            assert start_frame < end_frame
             if sup.end > duration:
-                # offset = self._sec_to_stft_frames(sup.end - duration, fading=False)
-                offset = end_frame - start_frame
+                offset_frames = end_frame - start_frame
                 logger.debug(
                     f"Detected {sup.end=} larger than {duration=}. "
-                    f"End {offset = } frames."
+                    f"End {offset_frames = } frames."
                 )
-                weight_segment = weight_segment[..., :offset]
-            else:
-                end_frame = start_frame + weight_segment.shape[-1]
+                weight_segment = weight_segment[:offset_frames]
+            # Note: it's because pading problem
+            end_frame = start_frame + weight_segment.shape[-1]
+            # if abs(end_frame - start_frame - weight_segment.shape[-1]) == 1:
+            #     logger.warning(f"Found pading problem. Paste {weight_segment.shape=} "
+            #                    f"{start_frame=}:{end_frame=}")
+            #     end_frame = start_frame + weight_segment.shape[-1]
             assert (
                 end_frame - start_frame == weight_segment.shape[-1]
             ), f"{end_frame=} {start_frame=} {weight_segment.shape[-1]=}"
             total_frames += weight_segment.shape[-1]
-            weights[speaker_id][start_frame:end_frame] = weight_segment
+            logger.debug(f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment")
+            if weight_segment.shape[-1] > 0 and end_frame - start_frame > 1:
+                weights[speaker_id][start_frame:end_frame] = weight_segment
+            else:
+                logging.warning(f"Bad vad supervision: {duration=} {sup.start=} "
+                                f"{sup.end=} {weight_segment.shape=} "
+                                f"{start_frame=}:{end_frame=}")
         weights = np.stack(weights)
         assert (
             num_sups > 0
