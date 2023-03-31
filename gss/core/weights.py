@@ -61,6 +61,10 @@ class Weights:
         weights = [np.zeros(cut_num_frames) for _ in range(len(idx))]
         if self.garbage_class:
             weights += [np.ones(cut_num_frames)]
+        if cut_num_frames < 2:
+            logger.warning(f"Cuts ({session_id=}, {start_time=}, {duration=}) too small"
+                           f"{cut_num_frames=}. Return all zeros.")
+            return np.stack(weights), idx
         num_sups = 0
         total_frames = 0
         cut = self.cuts[session_id].truncate(
@@ -87,8 +91,10 @@ class Weights:
             else:
                 start_frame += self._sec_to_stft_frames(sup.start, fading=False)
             start_frame = max(start_frame, 0)
+            if start_frame >= end_frame:
+                logger.warning(f'Supervision {start_frame}:{end_frame} so small. Skip it')
+                continue
             # finding end frame
-            assert start_frame < end_frame
             if sup.end > duration:
                 offset_frames = end_frame - start_frame
                 logger.debug(
