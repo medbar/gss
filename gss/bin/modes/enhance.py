@@ -175,6 +175,12 @@ def common_options(func):
     default=None,
     help="Rspecifier for TimeXfreq initializing supervisions",
 )
+@click.option(
+    "--gss-target-wspec",
+    type=click.Path(),
+    default=None,
+    help="Rspecifier for TimeXfreq initializing supervisions",
+)
 def cuts_(
     cuts_per_recording,
     cuts_per_segment,
@@ -199,6 +205,7 @@ def cuts_(
     preload_audio,
     activity_from_weights_thr,
     tfweights_rspec,
+    gss_target_wspec,
 ):
     """
     Enhance segments (represented by cuts).
@@ -267,6 +274,7 @@ def cuts_(
         weights_cuts=weights_cuts,
         activity_from_weights_thr=activity_from_weights_thr,
         tfweights_rspec=tfweights_rspec,
+        gss_target_wspec=gss_target_wspec,
     )
     if preload_audio:
         logger.info(f"Preloading audio files into memory.")
@@ -292,6 +300,8 @@ def cuts_(
     )
     end = time.time()
     logger.info(f"Finished in {end-begin:.2f}s with {num_errors} errors")
+    if enhancer.dump_gss_target_posterior is not None:
+        enhancer.dump_gss_target_posterior.close()
 
     if enhanced_manifest is not None:
         logger.info(f"Saving enhanced cuts manifest to {enhanced_manifest}")

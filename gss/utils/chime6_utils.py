@@ -3,6 +3,10 @@ from kaldiio import ReadHelper
 from lhotse import SupervisionSet, SupervisionSegment
 
 
+def make_chime_uid(recording_id, speaker, start, end):
+    return f"{recording_id}-{speaker}-{int(100 * start):06d}_{int(100 * end):06d}"
+
+
 def extract_info_from_kaldi_gss_track1_uid(uid):
     split = uid.split("-")
     if len(split) == 4:

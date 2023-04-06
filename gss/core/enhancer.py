@@ -9,6 +9,7 @@ from typing import Optional
 import cupy as cp
 import numpy as np
 import soundfile as sf
+from kaldiio import WriteHelper
 from lhotse import CutSet, Recording, RecordingSet, SupervisionSegment, SupervisionSet
 from lhotse.utils import add_durations, compute_num_samples
 from torch.utils.data import DataLoader
@@ -20,7 +21,7 @@ from gss.utils.data_utils import (
     create_sampler,
     start_end_context_frames,
 )
-
+from gss.utils.chime6_utils import make_chime_uid
 
 from gss.utils.logging_utils import get_logger
 
@@ -52,6 +53,7 @@ def get_enhancer(
     weights_cuts=None,
     activity_from_weights_thr=None,
     tfweights_rspec=None,
+    gss_target_wspec=None,
 ):
     if logger.level <= 10:
         logger.debug(
@@ -120,6 +122,9 @@ def get_enhancer(
         sampling_rate=sampling_rate,
         weights=weights,
         activity_from_weights=activity_from_weights_thr is not None,
+        dump_gss_target_posterior=WriteHelper(gss_target_wspec)
+        if gss_target_wspec is not None
+        else None,
     )
 
 
@@ -146,6 +151,7 @@ class Enhancer:
 
     weights: Optional[Weights] = None
     activity_from_weights: bool = False
+    dump_gss_target_posterior = None
 
     def stft(self, x):
         from gss.core.stft_module import stft
@@ -218,7 +224,7 @@ class Enhancer:
             offset = 0
             for cut in orig_cuts:
                 save_path = Path(
-                    f"{recording_id}-{speaker}-{int(100*cut.start):06d}_{int(100*cut.end):06d}.flac"
+                    make_chime_uid(recording_id, speaker, cut.start, cut.end) + ".flac"
                 )
                 if force_overwrite or not (out_dir / save_path).exists():
                     st = compute_num_samples(offset, self.sampling_rate)
@@ -277,7 +283,10 @@ class Enhancer:
                 if not force_overwrite:
                     for cut in batch.orig_cuts:
                         save_path = Path(
-                            f"{batch.recording_id}-{batch.speaker}-{int(100*cut.start):06d}_{int(100*cut.end):06d}.flac"
+                            make_chime_uid(
+                                batch.recording_id, batch.speaker, cut.start, cut.end
+                            )
+                            + ".flac"
                         )
                         file_exists.append((out_dir / save_path).exists())
 
@@ -291,7 +300,7 @@ class Enhancer:
                 num_chunks = 1
                 while True:
                     try:
-                        x_hat = self.enhance_batch(
+                        x_hat, target_tf_posts = self.enhance_batch(
                             obs=batch.audio,
                             speaker_id=batch.speaker_idx,
                             activity=batch.activity,
@@ -308,7 +317,7 @@ class Enhancer:
                             f"Out of memory error while processing the batch. Trying again with {num_chunks} chunks."
                         )
                     except Exception as e:
-                        t = "".join(traceback.format_exception(e))
+                        t = "".join(traceback.format_exc())
                         logging.warning(
                             f"Catched enhancer batch error: {e}.\n Traceback: {t}.\n"
                             f"!!!BATCH {batch_idx} was SKIPPED!!!"
@@ -332,6 +341,16 @@ class Enhancer:
                         batch.speaker,
                     )
                 )
+                if self.dump_gss_target_posterior is not None:
+                    for cut in batch.orig_cuts:
+                        uid = make_chime_uid(
+                            batch.recording_id, batch.speaker, cut.start, cut.end
+                        )
+                        logger.debug(
+                            f"Dumping gss target ({target_tf_posts.shape=}) "
+                            f"posteriors for {uid=}."
+                        )
+                        self.dump_gss_target_posterior(uid, np.asarray(target_tf_posts))
 
         out_recordings = []
         out_supervisions = []
@@ -431,7 +450,6 @@ class Enhancer:
             f"Target speaker id is {speaker_id}. "
             f"{target_mask.sum()=}, {distortion_mask.sum()=}"
         )
-
         logging.debug("Applying beamforming with computed masks")
         X_hat = []
         for i in range(num_chunks):
@@ -456,4 +474,4 @@ class Enhancer:
         # Trim x_hat to original length of cut
         x_hat = x_hat[:, left_context:-right_context]
         logging.debug(f"Output signal shape is {x_hat.shape}")
-        return x_hat
+        return x_hat, target_mask

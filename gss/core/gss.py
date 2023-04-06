@@ -74,7 +74,6 @@ class GSS:
             )
         # Freq, time, num_channels -> Time, Num_channels, freq
         posterior = affiliation.transpose(1, 2, 0)
-
         return posterior
 
     def _debug_call_init(self, initialization, source_active_mask):
