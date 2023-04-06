@@ -6,7 +6,9 @@ from dataclasses import dataclass
 import cupy as cp
 
 from gss.cacgmm.utils import is_broadcast_compatible, normalize_observation
+from gss.utils.logging_utils import get_logger
 
+logger = get_logger()
 
 @dataclass
 class ComplexAngularCentralGaussian:
@@ -38,6 +40,8 @@ class ComplexAngularCentralGaussian:
         except cp.linalg.LinAlgError:
             # ToDo: figure out when this happen and why eig may work.
             # It is likely that eig is more stable than eigh.
+            logger.warning(f"cp.linalg.eigh failed for {covariance.shape=}. "
+                           f"Trying to use cp.linalg.eig")
             try:
                 eigenvals, eigenvecs = cp.linalg.eig(covariance)
             except cp.linalg.LinAlgError:

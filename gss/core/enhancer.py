@@ -13,7 +13,7 @@ from lhotse import CutSet, Recording, RecordingSet, SupervisionSegment, Supervis
 from lhotse.utils import add_durations, compute_num_samples
 from torch.utils.data import DataLoader
 
-from gss.core import GSS, WPE, Activity, Beamformer, Weights
+from gss.core import GSS, WPE, Activity, Beamformer, Weights, TFArkWeights
 from gss.utils.data_utils import (
     GssDataset,
     activity_time_to_frequency,
@@ -50,6 +50,8 @@ def get_enhancer(
     bf_drop_context=True,
     postfilter=None,
     weights_cuts=None,
+    activity_from_weights_thr=None,
+    tfweights_rspec=None
 ):
     if logger.level <= 10:
         logger.debug(
@@ -89,9 +91,22 @@ def get_enhancer(
             stft_shift=stft_shift,
             stft_fading=stft_fading,
             speaker_to_idx_map=activity.speaker_to_idx_map,
+            activity_thr=activity_from_weights_thr
         )
     else:
         weights = None
+    if tfweights_rspec is not None:
+        assert weights is None
+        weights = TFArkWeights(
+            speaker_to_idx_map=activity.speaker_to_idx_map,
+            rspec=tfweights_rspec,
+            garbage_class=activity_garbage_class,
+            sr=sampling_rate,
+            stft_size=stft_size,
+            stft_shift=stft_shift,
+            stft_fading=stft_fading,
+        )
+
     return Enhancer(
         context_duration=context_duration,
         wpe_block=wpe_block,
@@ -104,6 +119,7 @@ def get_enhancer(
         stft_fading=stft_fading,
         sampling_rate=sampling_rate,
         weights=weights,
+        activity_from_weights=activity_from_weights_thr is not None
     )
 
 
@@ -129,6 +145,7 @@ class Enhancer:
     sampling_rate: int
 
     weights: Optional[Weights] = None
+    activity_from_weights: bool = False
 
     def stft(self, x):
         from gss.core.stft_module import stft
@@ -176,6 +193,7 @@ class Enhancer:
             context_duration=self.context_duration,
             activity=self.activity,
             weights=self.weights,
+            activity_from_weights=self.activity_from_weights
         )
         # round robin sampler, which create a batches for one speaker
         # all from the same recording and speaker
@@ -274,9 +292,10 @@ class Enhancer:
                 while True:
                     try:
                         x_hat = self.enhance_batch(
-                            batch.audio,
-                            batch.activity,
-                            batch.speaker_idx,
+                            obs=batch.audio,
+                            speaker_id=batch.speaker_idx,
+                            activity=batch.activity,
+                            activity_freq=batch.activity_freq,
                             num_chunks=num_chunks,
                             left_context=batch.left_context,
                             right_context=batch.right_context,
@@ -330,23 +349,28 @@ class Enhancer:
     def enhance_batch(
         self,
         obs,
-        activity,
         speaker_id,
+        activity=None,
+        activity_freq=None,
         num_chunks=1,
         left_context=0,
         right_context=0,
         weights=None,
     ):
-        logging.debug(
-            f"Converting activity to frequency domain. time {activity.shape = }"
-        )
-        activity_freq = activity_time_to_frequency(
-            activity,
-            stft_window_length=self.stft_size,
-            stft_shift=self.stft_shift,
-            stft_fading=self.stft_fading,
-            stft_pad=True,
-        )
+
+        if activity_freq is None:
+            assert activity is not None
+            logging.debug(
+                f"Converting activity to frequency domain. time {activity.shape = }"
+            )
+            activity_freq = activity_time_to_frequency(
+                activity,
+                stft_window_length=self.stft_size,
+                stft_shift=self.stft_shift,
+                stft_fading=self.stft_fading,
+                stft_pad=True,
+            )
+        assert activity_freq is not None
         logging.debug(f"freq activity.shape = {activity_freq.shape}")
         # Convert to cupy array (putting it on the GPU)
         obs = cp.asarray(obs)

@@ -14,6 +14,7 @@ class GSS:
     iterations: int
     iterations_post: int
     eps: int = 1e-10
+    use_mask_in_predict: float = False
 
     def __call__(self, Obs, acitivity_freq, initialization=None, normalize_init=True):
         # acitivity_freq.shape is [num_speakers, num_frames]
@@ -60,8 +61,11 @@ class GSS:
                     initialization=cur,
                     iterations=self.iterations_post - 1,
                 )
-            # is it right ? why without source_active_mask
-            affiliation = cur.predict(Obs.T)
+            if self.use_mask_in_predict:
+                affiliation = cur.predict(Obs.T, source_activity_mask=source_active_mask[..., :T])
+            else:
+                # is it right ? why without source_active_mask
+                affiliation = cur.predict(Obs.T)
         else:
             affiliation = cur.predict(
                 Obs.T, source_activity_mask=source_active_mask[..., :T]

@@ -164,6 +164,18 @@ def common_options(func):
     help="If set, we will move_to_memory audio files before processing it",
 
 )
+@click.option(
+    "--activity-from-weights-thr",
+    type=float,
+    default=None,
+    help="Create activity masks from weights for this threshold value"
+)
+@click.option(
+    "--tfweights-rspec",
+    type=click.Path(),
+    default=None,
+    help="Rspecifier for TimeXfreq initializing supervisions",
+)
 def cuts_(
     cuts_per_recording,
     cuts_per_segment,
@@ -185,7 +197,9 @@ def cuts_(
     duration_tolerance,
     log_level,
     weights_manifest,
-    preload_audio
+    preload_audio,
+    activity_from_weights_thr,
+    tfweights_rspec
 ):
     """
     Enhance segments (represented by cuts).
@@ -252,6 +266,8 @@ def cuts_(
         activity_garbage_class=use_garbage_class,
         wpe=use_wpe,
         weights_cuts=weights_cuts,
+        activity_from_weights_thr=activity_from_weights_thr,
+        tfweights_rspec=tfweights_rspec
     )
     if preload_audio:
         logger.info(f"Preloading audio files into memory.")

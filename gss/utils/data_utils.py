@@ -41,17 +41,19 @@ class GssDataset(Dataset):
     """
 
     def __init__(
-        self,
-        activity,
-        context_duration: float = 0,
-        num_channels: int = None,
-        weights = None,
+            self,
+            activity,
+            context_duration: float = 0,
+            num_channels: int = None,
+            weights=None,
+            activity_from_weights=False
     ) -> None:
         super().__init__()
         self.activity = activity
         self.weights = weights
         self.context_duration = context_duration
         self.num_channels = num_channels
+        self.activity_from_weights = activity_from_weights
 
     def __getitem__(self, cuts: CutSet) -> Dict[str, Any]:
         self._validate(cuts)
@@ -84,10 +86,12 @@ class GssDataset(Dataset):
 
         concatenated = None
         activity = []
+        activity_freq = []
         weights = []
         num_cuts = 0
         num_all_sups = 0
         spk_to_idx_map_prev = None
+        spk_to_idx_map = None
         for new_cut in new_cuts:
             num_cuts += 1
             num_all_sups += len(new_cut.supervisions)
@@ -96,36 +100,54 @@ class GssDataset(Dataset):
                 if concatenated is None
                 else concatenated.append(new_cut, preserve_id="left")
             )
-            cut_activity, spk_to_idx_map = self.activity.get_activity(
-                new_cut.recording_id, new_cut.start, new_cut.duration
-            )
+            cut_weights = None
             if self.weights is not None:
-                cut_weights, spk_to_idx_map_2 = self.weights.get_weights(
+                cut_weights, spk_to_idx_map = self.weights.get_weights(
                     new_cut.recording_id, new_cut.start, new_cut.duration
                 )
-                assert (
-                    spk_to_idx_map == spk_to_idx_map_2
-                ), f"{spk_to_idx_map} != {spk_to_idx_map_2}"
                 weights.append(cut_weights)
-
+            if self.activity_from_weights:
+                assert self.weights is not None
+                cut_activity_freq, _ = self.weights.get_activity_freq(new_cut.recording_id,
+                                                                 new_cut.start,
+                                                                 new_cut.duration,
+                                                                 preload_weights=cut_weights)
+                activity_freq.append(cut_activity_freq)
+            else:
+                cut_activity, spk_to_idx_map2 = self.activity.get_activity(
+                    new_cut.recording_id, new_cut.start, new_cut.duration
+                )
+                assert spk_to_idx_map is None or spk_to_idx_map == spk_to_idx_map2
+                activity.append(cut_activity)
             assert (
-                spk_to_idx_map_prev is None or spk_to_idx_map == spk_to_idx_map_prev
+                    spk_to_idx_map_prev is None or spk_to_idx_map == spk_to_idx_map_prev
             ), f"{spk_to_idx_map} != {spk_to_idx_map_prev}"
             spk_to_idx_map_prev = spk_to_idx_map
-            activity.append(cut_activity)
 
         # Load audio
         audio = concatenated.load_audio()
-        activity = np.concatenate(activity, axis=1)
         if len(weights) > 0:
             weights = np.concatenate(weights, axis=-1)
         else:
             weights = None
+        if len(activity) > 0:
+            activity = np.concatenate(activity, axis=1)
+        else:
+            activity = None
+        if len(activity_freq) > 0:
+            activity_freq = np.concatenate(activity_freq, axis=1)
+        else:
+            activity_freq = None
+
         logger.debug(
             f"Segments from {left_context = }s to {right_context = }s, "
             f"{num_cuts=}, {num_all_sups=}, "
-            f"{audio.shape=}, active frames per speaker {activity.sum(axis=1)}"
+            f"{audio.shape=}"
         )
+        if activity is not None:
+            logger.debug(f"Active samples per speaker {activity.sum(axis=1)}")
+        if activity_freq is not None:
+            logger.debug(f"Active frames per speaker {activity_freq.sum(axis=1)}")
 
         return {
             "audio": audio,
@@ -140,6 +162,7 @@ class GssDataset(Dataset):
                 right_context, sampling_rate=concatenated.sampling_rate
             ),
             "activity": activity,
+            "activity_freq": activity_freq,
             "orig_cuts": orig_cuts,
             "speaker": speaker,
             "speaker_idx": spk_to_idx_map[speaker],
@@ -174,7 +197,7 @@ class GssDataset(Dataset):
 
 
 def create_sampler(
-    cuts: CutSet, max_duration: float = None, max_cuts: int = None, num_buckets: int = 1
+        cuts: CutSet, max_duration: float = None, max_cuts: int = None, num_buckets: int = 1
 ) -> RoundRobinSampler:
     buckets = create_buckets_by_speaker(cuts)
     samplers = []
@@ -210,12 +233,12 @@ def create_buckets_by_speaker(cuts: CutSet) -> List[CutSet]:
 
 # Taken from: https://github.com/fgnt/nara_wpe/blob/452b95beb27afad3f8fa3e378de2803452906f1b/nara_wpe/utils.py#L203
 def _samples_to_stft_frames(
-    samples,
-    size,
-    shift,
-    *,
-    pad=True,
-    fading=False,
+        samples,
+        size,
+        shift,
+        *,
+        pad=True,
+        fading=False,
 ):
     """
     Calculates number of STFT frames from number of samples in time domain.
@@ -243,7 +266,7 @@ def _samples_to_stft_frames(
 
 
 def start_end_context_frames(
-    start_context_samples, end_context_samples, stft_size, stft_shift, stft_fading
+        start_context_samples, end_context_samples, stft_size, stft_shift, stft_fading
 ):
     assert start_context_samples >= 0
     assert end_context_samples >= 0
@@ -264,11 +287,11 @@ def start_end_context_frames(
 
 
 def activity_time_to_frequency(
-    time_activity,
-    stft_window_length,
-    stft_shift,
-    stft_fading,
-    stft_pad=True,
+        time_activity,
+        stft_window_length,
+        stft_shift,
+        stft_fading,
+        stft_pad=True,
 ):
     assert np.asarray(time_activity).dtype != np.object, (
         type(time_activity),
@@ -345,7 +368,7 @@ def post_process_manifests(cuts, enhanced_dir):
         if isinstance(out_cut, MixedCut):
             out_cut = out_cut.save_audio(
                 (enhanced_dir / cut.recording_id)
-                / f"{cut.recording_id}-{cut.speaker}-{int(cut.start*100):06d}_{int(cut.end*100):06d}.flac"
+                / f"{cut.recording_id}-{cut.speaker}-{int(cut.start * 100):06d}_{int(cut.end * 100):06d}.flac"
             )
         out_cuts.append(out_cut)
 
