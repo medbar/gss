@@ -51,7 +51,7 @@ def get_enhancer(
     postfilter=None,
     weights_cuts=None,
     activity_from_weights_thr=None,
-    tfweights_rspec=None
+    tfweights_rspec=None,
 ):
     if logger.level <= 10:
         logger.debug(
@@ -91,7 +91,7 @@ def get_enhancer(
             stft_shift=stft_shift,
             stft_fading=stft_fading,
             speaker_to_idx_map=activity.speaker_to_idx_map,
-            activity_thr=activity_from_weights_thr
+            activity_thr=activity_from_weights_thr,
         )
     else:
         weights = None
@@ -119,7 +119,7 @@ def get_enhancer(
         stft_fading=stft_fading,
         sampling_rate=sampling_rate,
         weights=weights,
-        activity_from_weights=activity_from_weights_thr is not None
+        activity_from_weights=activity_from_weights_thr is not None,
     )
 
 
@@ -193,7 +193,7 @@ class Enhancer:
             context_duration=self.context_duration,
             activity=self.activity,
             weights=self.weights,
-            activity_from_weights=self.activity_from_weights
+            activity_from_weights=self.activity_from_weights,
         )
         # round robin sampler, which create a batches for one speaker
         # all from the same recording and speaker
@@ -357,7 +357,6 @@ class Enhancer:
         right_context=0,
         weights=None,
     ):
-
         if activity_freq is None:
             assert activity is not None
             logging.debug(

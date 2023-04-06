@@ -62,7 +62,9 @@ class GSS:
                     iterations=self.iterations_post - 1,
                 )
             if self.use_mask_in_predict:
-                affiliation = cur.predict(Obs.T, source_activity_mask=source_active_mask[..., :T])
+                affiliation = cur.predict(
+                    Obs.T, source_activity_mask=source_active_mask[..., :T]
+                )
             else:
                 # is it right ? why without source_active_mask
                 affiliation = cur.predict(Obs.T)

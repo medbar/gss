@@ -40,15 +40,19 @@ class TFArkWeights:
             for key, tf in f:
                 # tf - [time, freq] init probs
                 uinfo = extract_info_from_kaldi_gss_track1_uid(key)
-                element = dict(start=uinfo['start'],
-                               duration=uinfo['duration'],
-                               end=uinfo['start'] + uinfo['duration'],
-                               speaker=uinfo['speaker'],
-                               tf_probs=tf)
-                self.sups[uinfo['recording_id']].append(element)
+                element = dict(
+                    start=uinfo["start"],
+                    duration=uinfo["duration"],
+                    end=uinfo["start"] + uinfo["duration"],
+                    speaker=uinfo["speaker"],
+                    tf_probs=tf,
+                )
+                self.sups[uinfo["recording_id"]].append(element)
 
-        logger.info(f"Initialized Time-Freq Weights. {self.speaker_to_idx_map = }, "
-                    f"loaded {sum(len(s) for s in self.sups.values())} supervisions")
+        logger.info(
+            f"Initialized Time-Freq Weights. {self.speaker_to_idx_map = }, "
+            f"loaded {sum(len(s) for s in self.sups.values())} supervisions"
+        )
 
     def _sec_to_stft_frames(self, sec, fading=None, pad=None):
         if fading is None:
@@ -67,17 +71,24 @@ class TFArkWeights:
         end_time = start_time + duration
         sups = []
         for s in self.sups[session_id]:
-            if start_time <= s['start'] <= end_time or start_time <= s['end'] <= end_time:
-                s_with_offset = dict(start=s['start'] - start_time,
-                                     duration=s['duration'],
-                                     end=s['start'] - start_time + s['duration'],
-                                     speaker=s['speaker'],
-                                     tf_probs=s['tf_probs'])
+            if (
+                start_time <= s["start"] <= end_time
+                or start_time <= s["end"] <= end_time
+            ):
+                s_with_offset = dict(
+                    start=s["start"] - start_time,
+                    duration=s["duration"],
+                    end=s["start"] - start_time + s["duration"],
+                    speaker=s["speaker"],
+                    tf_probs=s["tf_probs"],
+                )
                 sups.append(s_with_offset)
         return sups
 
     def get_weights(self, session_id, start_time, duration):
-        weights_no_fading, idx = self.get_weights_no_fading(session_id, start_time, duration)
+        weights_no_fading, idx = self.get_weights_no_fading(
+            session_id, start_time, duration
+        )
         if not self.stft_fading:
             return weights_no_fading, idx
 
@@ -92,33 +103,41 @@ class TFArkWeights:
         if self.garbage_class:
             weights += [np.ones(cut_num_frames)]
         if cut_num_frames < 2:
-            logger.warning(f"Cuts ({session_id=}, {start_time=}, {duration=}) too small"
-                           f"{cut_num_frames=}. Return all zeros.")
+            logger.warning(
+                f"Cuts ({session_id=}, {start_time=}, {duration=}) too small"
+                f"{cut_num_frames=}. Return all zeros."
+            )
             return np.stack(weights), idx
         num_sups = 0
         total_frames = 0
         sups = self.get_sups(session_id, start_time, duration)
         for sup in sups:
             num_sups += 1
-            speaker_id = idx[sup['speaker']]
-            sup_dur_frames = self._sec_to_stft_frames(sup['duration'], fading=False)
-            weight_segment = sup['tf_prob']
-            assert sup_dur_frames == weight_segment.shape[0], f"{sup_dur_frames} {weight_segment.shape}"
+            speaker_id = idx[sup["speaker"]]
+            sup_dur_frames = self._sec_to_stft_frames(sup["duration"], fading=False)
+            weight_segment = sup["tf_prob"]
+            assert (
+                sup_dur_frames == weight_segment.shape[0]
+            ), f"{sup_dur_frames} {weight_segment.shape}"
             start_frame = 0
             end_frame = cut_num_frames
             # finding start frame
-            if sup['start'] < 0:
-                offset_frames = self._sec_to_stft_frames(-sup['start'], fading=False)
-                logger.debug(f"Detected {sup['start'] = }. Start {offset_frames = } frames.")
+            if sup["start"] < 0:
+                offset_frames = self._sec_to_stft_frames(-sup["start"], fading=False)
+                logger.debug(
+                    f"Detected {sup['start'] = }. Start {offset_frames = } frames."
+                )
                 weight_segment = weight_segment[offset_frames:]
             else:
-                start_frame += self._sec_to_stft_frames(sup['start'], fading=False)
+                start_frame += self._sec_to_stft_frames(sup["start"], fading=False)
             start_frame = max(start_frame, 0)
             if start_frame >= end_frame:
-                logger.warning(f'Supervision {start_frame}:{end_frame} so small. Skip it')
+                logger.warning(
+                    f"Supervision {start_frame}:{end_frame} so small. Skip it"
+                )
                 continue
             # finding end frame
-            if sup['end'] > duration:
+            if sup["end"] > duration:
                 offset_frames = end_frame - start_frame
                 logger.debug(
                     f"Detected {sup['end']=} larger than {duration=}. "
@@ -132,18 +151,22 @@ class TFArkWeights:
             #                    f"{start_frame=}:{end_frame=}")
             #     end_frame = start_frame + weight_segment.shape[-1]
             assert (
-                    end_frame - start_frame == weight_segment.shape[0]
+                end_frame - start_frame == weight_segment.shape[0]
             ), f"{end_frame=} {start_frame=} {weight_segment.shape[0]=}"
             total_frames += weight_segment.shape[0]
-            logger.debug(f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment")
+            logger.debug(
+                f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment"
+            )
             if weight_segment.shape[0] > 0 and end_frame - start_frame > 1:
                 weights[speaker_id][start_frame:end_frame] = weight_segment
             else:
-                logging.warning(f"Bad vad supervision: {duration=} {sup['start']=} "
-                                f"{sup['end']=} {weight_segment.shape=} "
-                                f"{start_frame=}:{end_frame=}")
+                logging.warning(
+                    f"Bad vad supervision: {duration=} {sup['start']=} "
+                    f"{sup['end']=} {weight_segment.shape=} "
+                    f"{start_frame=}:{end_frame=}"
+                )
         assert (
-                num_sups > 0
+            num_sups > 0
         ), f"Weights for ({session_id=}, {start_time=}, {duration=}) does not exist. Wrong weights manifest?"
         logger.debug(
             f"Weights for ({session_id=}, {start_time=}, {duration=}) contains in {num_sups} supervisions. "

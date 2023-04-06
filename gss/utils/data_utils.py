@@ -41,12 +41,12 @@ class GssDataset(Dataset):
     """
 
     def __init__(
-            self,
-            activity,
-            context_duration: float = 0,
-            num_channels: int = None,
-            weights=None,
-            activity_from_weights=False
+        self,
+        activity,
+        context_duration: float = 0,
+        num_channels: int = None,
+        weights=None,
+        activity_from_weights=False,
     ) -> None:
         super().__init__()
         self.activity = activity
@@ -108,10 +108,12 @@ class GssDataset(Dataset):
                 weights.append(cut_weights)
             if self.activity_from_weights:
                 assert self.weights is not None
-                cut_activity_freq, _ = self.weights.get_activity_freq(new_cut.recording_id,
-                                                                 new_cut.start,
-                                                                 new_cut.duration,
-                                                                 preload_weights=cut_weights)
+                cut_activity_freq, _ = self.weights.get_activity_freq(
+                    new_cut.recording_id,
+                    new_cut.start,
+                    new_cut.duration,
+                    preload_weights=cut_weights,
+                )
                 activity_freq.append(cut_activity_freq)
             else:
                 cut_activity, spk_to_idx_map2 = self.activity.get_activity(
@@ -120,7 +122,7 @@ class GssDataset(Dataset):
                 assert spk_to_idx_map is None or spk_to_idx_map == spk_to_idx_map2
                 activity.append(cut_activity)
             assert (
-                    spk_to_idx_map_prev is None or spk_to_idx_map == spk_to_idx_map_prev
+                spk_to_idx_map_prev is None or spk_to_idx_map == spk_to_idx_map_prev
             ), f"{spk_to_idx_map} != {spk_to_idx_map_prev}"
             spk_to_idx_map_prev = spk_to_idx_map
 
@@ -197,7 +199,7 @@ class GssDataset(Dataset):
 
 
 def create_sampler(
-        cuts: CutSet, max_duration: float = None, max_cuts: int = None, num_buckets: int = 1
+    cuts: CutSet, max_duration: float = None, max_cuts: int = None, num_buckets: int = 1
 ) -> RoundRobinSampler:
     buckets = create_buckets_by_speaker(cuts)
     samplers = []
@@ -233,12 +235,12 @@ def create_buckets_by_speaker(cuts: CutSet) -> List[CutSet]:
 
 # Taken from: https://github.com/fgnt/nara_wpe/blob/452b95beb27afad3f8fa3e378de2803452906f1b/nara_wpe/utils.py#L203
 def _samples_to_stft_frames(
-        samples,
-        size,
-        shift,
-        *,
-        pad=True,
-        fading=False,
+    samples,
+    size,
+    shift,
+    *,
+    pad=True,
+    fading=False,
 ):
     """
     Calculates number of STFT frames from number of samples in time domain.
@@ -266,7 +268,7 @@ def _samples_to_stft_frames(
 
 
 def start_end_context_frames(
-        start_context_samples, end_context_samples, stft_size, stft_shift, stft_fading
+    start_context_samples, end_context_samples, stft_size, stft_shift, stft_fading
 ):
     assert start_context_samples >= 0
     assert end_context_samples >= 0
@@ -287,11 +289,11 @@ def start_end_context_frames(
 
 
 def activity_time_to_frequency(
-        time_activity,
-        stft_window_length,
-        stft_shift,
-        stft_fading,
-        stft_pad=True,
+    time_activity,
+    stft_window_length,
+    stft_shift,
+    stft_fading,
+    stft_pad=True,
 ):
     assert np.asarray(time_activity).dtype != np.object, (
         type(time_activity),

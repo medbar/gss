@@ -31,8 +31,10 @@ class Weights:
     def __post_init__(self):
         if self.supervisions_index is None:
             self.supervisions_index = self.cuts.index_supervisions()
-        logger.info(f"Initialized Weights. {self.speaker_to_idx_map = }, "
-                    f"{self.activity_thr = }")
+        logger.info(
+            f"Initialized Weights. {self.speaker_to_idx_map = }, "
+            f"{self.activity_thr = }"
+        )
 
     def _sec_to_stft_frames(self, sec, fading=None, pad=None):
         if fading is None:
@@ -48,7 +50,9 @@ class Weights:
         )
 
     def get_weights(self, session_id, start_time, duration):
-        weights_no_fading, idx = self.get_weights_no_fading(session_id, start_time, duration)
+        weights_no_fading, idx = self.get_weights_no_fading(
+            session_id, start_time, duration
+        )
         if not self.stft_fading:
             return weights_no_fading, idx
 
@@ -64,8 +68,10 @@ class Weights:
         if self.garbage_class:
             weights += [np.ones(cut_num_frames)]
         if cut_num_frames < 2:
-            logger.warning(f"Cuts ({session_id=}, {start_time=}, {duration=}) too small"
-                           f"{cut_num_frames=}. Return all zeros.")
+            logger.warning(
+                f"Cuts ({session_id=}, {start_time=}, {duration=}) too small"
+                f"{cut_num_frames=}. Return all zeros."
+            )
             return np.stack(weights), idx
         num_sups = 0
         total_frames = 0
@@ -88,13 +94,17 @@ class Weights:
             # finding start frame
             if sup.start < 0:
                 offset_frames = self._sec_to_stft_frames(-sup.start, fading=False)
-                logger.debug(f"Detected {sup.start = }. Start {offset_frames = } frames.")
+                logger.debug(
+                    f"Detected {sup.start = }. Start {offset_frames = } frames."
+                )
                 weight_segment = weight_segment[offset_frames:]
             else:
                 start_frame += self._sec_to_stft_frames(sup.start, fading=False)
             start_frame = max(start_frame, 0)
             if start_frame >= end_frame:
-                logger.warning(f'Supervision {start_frame}:{end_frame} so small. Skip it')
+                logger.warning(
+                    f"Supervision {start_frame}:{end_frame} so small. Skip it"
+                )
                 continue
             # finding end frame
             if sup.end > duration:
@@ -114,13 +124,17 @@ class Weights:
                 end_frame - start_frame == weight_segment.shape[-1]
             ), f"{end_frame=} {start_frame=} {weight_segment.shape[-1]=}"
             total_frames += weight_segment.shape[-1]
-            logger.debug(f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment")
+            logger.debug(
+                f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment"
+            )
             if weight_segment.shape[-1] > 0 and end_frame - start_frame > 1:
                 weights[speaker_id][start_frame:end_frame] = weight_segment
             else:
-                logging.warning(f"Bad vad supervision: {duration=} {sup.start=} "
-                                f"{sup.end=} {weight_segment.shape=} "
-                                f"{start_frame=}:{end_frame=}")
+                logging.warning(
+                    f"Bad vad supervision: {duration=} {sup.start=} "
+                    f"{sup.end=} {weight_segment.shape=} "
+                    f"{start_frame=}:{end_frame=}"
+                )
         weights = np.stack(weights)
         assert (
             num_sups > 0
@@ -134,9 +148,9 @@ class Weights:
     def get_activity_freq(self, session_id, start_time, duration, preload_weights=None):
         # number of speakers + garbage
         if preload_weights is None:
-            weights, idx = self.get_weights(session_id=session_id,
-                                            start_time=start_time,
-                                            duration=duration)
+            weights, idx = self.get_weights(
+                session_id=session_id, start_time=start_time, duration=duration
+            )
         else:
             weights = preload_weights
             idx = self.speaker_to_idx_map[session_id]

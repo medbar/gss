@@ -162,13 +162,12 @@ def common_options(func):
     is_flag=True,
     default=False,
     help="If set, we will move_to_memory audio files before processing it",
-
 )
 @click.option(
     "--activity-from-weights-thr",
     type=float,
     default=None,
-    help="Create activity masks from weights for this threshold value"
+    help="Create activity masks from weights for this threshold value",
 )
 @click.option(
     "--tfweights-rspec",
@@ -199,7 +198,7 @@ def cuts_(
     weights_manifest,
     preload_audio,
     activity_from_weights_thr,
-    tfweights_rspec
+    tfweights_rspec,
 ):
     """
     Enhance segments (represented by cuts).
@@ -267,7 +266,7 @@ def cuts_(
         wpe=use_wpe,
         weights_cuts=weights_cuts,
         activity_from_weights_thr=activity_from_weights_thr,
-        tfweights_rspec=tfweights_rspec
+        tfweights_rspec=tfweights_rspec,
     )
     if preload_audio:
         logger.info(f"Preloading audio files into memory.")
