@@ -86,17 +86,17 @@ class Weights:
             speaker_id = idx[sup.speaker]
             sup_dur_frames = self._sec_to_stft_frames(sup.duration, fading=False)
             weight_segment = linear_resample(sup.vad_weights, sup_dur_frames)
-            logger.debug(
-                f"Resample vad_weights from {len(sup.vad_weights)} to {len(weight_segment)} frames."
-            )
+            # logger.debug(
+            #     f"Resample vad_weights from {len(sup.vad_weights)} to {len(weight_segment)} frames."
+            # )
             start_frame = 0
             end_frame = cut_num_frames
             # finding start frame
             if sup.start < 0:
                 offset_frames = self._sec_to_stft_frames(-sup.start, fading=False)
-                logger.debug(
-                    f"Detected {sup.start = }. Start {offset_frames = } frames."
-                )
+                # logger.debug(
+                #     f"Detected {sup.start = }. Start {offset_frames = } frames."
+                # )
                 weight_segment = weight_segment[offset_frames:]
             else:
                 start_frame += self._sec_to_stft_frames(sup.start, fading=False)
@@ -109,10 +109,10 @@ class Weights:
             # finding end frame
             if sup.end > duration:
                 offset_frames = end_frame - start_frame
-                logger.debug(
-                    f"Detected {sup.end=} larger than {duration=}. "
-                    f"End {offset_frames = } frames."
-                )
+                # logger.debug(
+                #     f"Detected {sup.end=} larger than {duration=}. "
+                #     f"End {offset_frames = } frames."
+                # )
                 weight_segment = weight_segment[:offset_frames]
             # Note: it's because pading problem
             end_frame = start_frame + weight_segment.shape[-1]
@@ -124,9 +124,9 @@ class Weights:
                 end_frame - start_frame == weight_segment.shape[-1]
             ), f"{end_frame=} {start_frame=} {weight_segment.shape[-1]=}"
             total_frames += weight_segment.shape[-1]
-            logger.debug(
-                f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment"
-            )
+            # logger.debug(
+            #     f"Paste {weight_segment.shape=} into [{start_frame=}:{end_frame=}] segment"
+            # )
             if weight_segment.shape[-1] > 0 and end_frame - start_frame > 1:
                 weights[speaker_id][start_frame:end_frame] = weight_segment
             else:

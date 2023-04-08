@@ -130,6 +130,12 @@ def common_options(func):
     return wrapper
 
 
+def mb_to_float(mb_float):
+    try:
+        return float(mb_float)
+    except ValueError:
+        return mb_float
+
 @enhance.command(name="cuts")
 @click.argument(
     "cuts_per_recording",
@@ -171,15 +177,27 @@ def common_options(func):
 )
 @click.option(
     "--tfweights-rspec",
-    type=click.Path(),
+    type=str,
     default=None,
     help="Rspecifier for TimeXfreq initializing supervisions",
 )
 @click.option(
     "--gss-target-wspec",
-    type=click.Path(),
+    type=str,
     default=None,
     help="Rspecifier for TimeXfreq initializing supervisions",
+)
+@click.option(
+    "--bf-context-reduce",
+    type=mb_to_float,
+    default='zeros',
+    help="['drop', 'zeros', 'keep', 'halfdrop' or float scale]",
+)
+@click.option(
+    "--gss-use-mask-in-predict",
+    is_flag=True,
+    default=False,
+    help="Using source activity mask in GSS prediction step",
 )
 def cuts_(
     cuts_per_recording,
@@ -206,6 +224,8 @@ def cuts_(
     activity_from_weights_thr,
     tfweights_rspec,
     gss_target_wspec,
+    bf_context_reduce,
+    gss_use_mask_in_predict
 ):
     """
     Enhance segments (represented by cuts).
@@ -275,6 +295,8 @@ def cuts_(
         activity_from_weights_thr=activity_from_weights_thr,
         tfweights_rspec=tfweights_rspec,
         gss_target_wspec=gss_target_wspec,
+        bf_context_reduce=bf_context_reduce,
+        gss_use_mask_in_predict=gss_use_mask_in_predict,
     )
     if preload_audio:
         logger.info(f"Preloading audio files into memory.")

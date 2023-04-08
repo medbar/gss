@@ -20,3 +20,6 @@ class Beamformer:
             raise NotImplementedError(self.postfilter)
 
         return X_hat
+
+# 0000 0.5,0.7,0.8
+#      0.5,0.3,0.2

@@ -67,12 +67,13 @@ class GSS:
                 )
             else:
                 # is it right ? why without source_active_mask
+                # answer: with source_active_mask is worse
                 affiliation = cur.predict(Obs.T)
         else:
             affiliation = cur.predict(
                 Obs.T, source_activity_mask=source_active_mask[..., :T]
             )
-        # Freq, time, num_channels -> Time, Num_channels, freq
+        # Freq, num_channels, time -> Num_channels, Time, freq
         posterior = affiliation.transpose(1, 2, 0)
         return posterior
 

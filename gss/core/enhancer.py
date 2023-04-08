@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
+from typing import Optional, Union
 
 import cupy as cp
 import numpy as np
@@ -48,12 +48,13 @@ def get_enhancer(
     stft_fading=True,
     bss_iterations=20,
     bss_iterations_post=1,
-    bf_drop_context=True,
+    bf_context_reduce="zeros",
     postfilter=None,
     weights_cuts=None,
     activity_from_weights_thr=None,
     tfweights_rspec=None,
     gss_target_wspec=None,
+    gss_use_mask_in_predict=False
 ):
     if logger.level <= 10:
         logger.debug(
@@ -80,6 +81,7 @@ def get_enhancer(
     gss_block = GSS(
         iterations=bss_iterations,
         iterations_post=bss_iterations_post,
+        use_mask_in_predict=gss_use_mask_in_predict
     )
     bf_block = Beamformer(
         postfilter=postfilter,
@@ -114,7 +116,7 @@ def get_enhancer(
         wpe_block=wpe_block,
         activity=activity,
         gss_block=gss_block,
-        bf_drop_context=bf_drop_context,
+        bf_context_reduce=bf_context_reduce,
         bf_block=bf_block,
         stft_size=stft_size,
         stft_shift=stft_shift,
@@ -140,7 +142,7 @@ class Enhancer:
     gss_block: GSS
     bf_block: Beamformer
 
-    bf_drop_context: bool
+    bf_context_reduce: Union[str, float]  # ['drop', 'zeros', 'keep', or float scale]
 
     stft_size: int
     stft_shift: int
@@ -151,7 +153,7 @@ class Enhancer:
 
     weights: Optional[Weights] = None
     activity_from_weights: bool = False
-    dump_gss_target_posterior = None
+    dump_gss_target_posterior: Optional[WriteHelper] = None
 
     def stft(self, x):
         from gss.core.stft_module import stft
@@ -350,7 +352,7 @@ class Enhancer:
                             f"Dumping gss target ({target_tf_posts.shape=}) "
                             f"posteriors for {uid=}."
                         )
-                        self.dump_gss_target_posterior(uid, np.asarray(target_tf_posts))
+                        self.dump_gss_target_posterior(uid, target_tf_posts.get())
 
         out_recordings = []
         out_supervisions = []
@@ -396,6 +398,102 @@ class Enhancer:
         logging.debug(f"Computing STFT for {obs.shape = }")
         Obs = self.stft(obs)
         logging.debug(f"STFT shape is {Obs.shape}")
+        masks = self.chunked_gss(Obs, activity_freq, weights=weights, num_chunks=num_chunks)
+
+        left_context_frames, right_context_frames = start_end_context_frames(
+            left_context,
+            right_context,
+            stft_size=self.stft_size,
+            stft_shift=self.stft_shift,
+            stft_fading=self.stft_fading,
+        )
+        logging.debug(
+            f"left_context_frames: {left_context_frames}, right_context_frames: {right_context_frames}"
+        )
+        if self.bf_context_reduce == 'keep':
+            # do nothing
+            pass
+        elif self.bf_context_reduce == 'zeros':
+            logger.debug(f"Zeroing left and right context")
+            masks[:, :left_context_frames, :] = 0
+            if right_context_frames > 0:
+                masks[:, -right_context_frames:, :] = 0
+        elif self.bf_context_reduce == 'drop':
+            logging.debug("Dropping context for beamforming")
+            masks = masks[:, left_context_frames:, :]
+            # Obs [D, T, F]
+            Obs = Obs[:, left_context_frames:, :]
+            if right_context_frames > 0:
+                masks = masks[:, :-right_context_frames, :]
+                Obs = Obs[:, :-right_context_frames, :]
+        elif self.bf_context_reduce == 'halfdrop':
+            logging.debug("Dropping half context for beamforming")
+            masks = masks[:, left_context_frames//2:, :]
+            # Obs [D, T, F]
+            Obs = Obs[:, left_context_frames//2:, :]
+            if right_context_frames > 2:
+                masks = masks[:, :-right_context_frames//2, :]
+                Obs = Obs[:, :-right_context_frames//2, :]
+        elif self.bf_context_reduce == 'dropfad':
+            logging.debug("Dropping context for beamforming. Keep fadding")
+            masks[:, :left_context_frames, :] = 0
+            if right_context_frames > 0:
+                masks[:, -right_context_frames:, :] = 0
+            if left_context_frames > 6:
+                l = left_context_frames - 6
+                masks = masks[:, l:, :]
+                Obs = Obs[:, l:, :]
+            if right_context_frames > 6:
+                r = right_context_frames - 6
+                masks = masks[:, :-r, :]
+                Obs = Obs[:, :-r, :]
+        elif isinstance(self.bf_context_reduce, float):
+            logger.debug(f"Multiplying context by {self.bf_context_reduce=}")
+            masks[:, :left_context_frames, :] *= self.bf_context_reduce
+            if right_context_frames > 0:
+                masks[:, -right_context_frames:, :] *= self.bf_context_reduce
+        else:
+            raise NotImplementedError(f"Unknown {self.bf_context_reduce=}")
+
+        target_mask = masks[speaker_id]
+        distortion_mask = cp.sum(masks, axis=0) - target_mask
+
+        logging.debug(
+            f"Target speaker id is {speaker_id}. "
+            f"{target_mask.sum()=}, {distortion_mask.sum()=}"
+        )
+        x_hat = self.chunked_beamforming(Obs, target_mask, distortion_mask, num_chunks=num_chunks)
+        # TODO
+        if isinstance(self.bf_context_reduce, float) or self.bf_context_reduce in ('zeros', 'keep'):
+            # Trim x_hat to original length of cut
+            x_hat = x_hat[:, left_context:-right_context]
+            target_mask = target_mask[left_context_frames:]
+            if right_context_frames > 0:
+                target_mask = target_mask[:-right_context_frames]
+        elif self.bf_context_reduce == 'drop':
+            # do nothing
+            pass
+        elif self.bf_context_reduce == 'dropfad':
+            # do nothing
+            # maybe we need to delete fading, but maybe not...
+            fading = self.stft_size - self.stft_shift
+            if left_context_frames > 6:
+                x_hat = x_hat[:, fading:]
+                target_mask = target_mask[3:, :]
+            if right_context_frames > 6:
+                x_hat = x_hat[:, :-fading]
+                target_mask = target_mask[:-3, :]
+        elif self.bf_context_reduce == 'halfdrop':
+            x_hat = x_hat[:, left_context//2:-right_context//2]
+            l = left_context_frames - left_context_frames // 2
+            target_mask = target_mask[l:, :]
+            if right_context_frames > 0:
+                r = right_context_frames - right_context_frames // 2
+                target_mask = target_mask[:-r, :]
+        logging.debug(f"Output signal shape is {x_hat.shape}. {target_mask.shape=}")
+        return x_hat, target_mask
+
+    def chunked_gss(self, Obs, activity_freq, weights=None, num_chunks=1):
         D, T, F = Obs.shape
 
         # Process observation in chunks
@@ -425,32 +523,13 @@ class Enhancer:
                 Obs_chunk, activity_freq[:, st:en], initialization=initialization
             )
             masks.append(masks_chunk)
-
         masks = cp.concatenate(masks, axis=1)
-        if self.bf_drop_context:
-            logging.debug("Dropping context for beamforming")
-            left_context_frames, right_context_frames = start_end_context_frames(
-                left_context,
-                right_context,
-                stft_size=self.stft_size,
-                stft_shift=self.stft_shift,
-                stft_fading=self.stft_fading,
-            )
-            logging.debug(
-                f"left_context_frames: {left_context_frames}, right_context_frames: {right_context_frames}"
-            )
+        return masks
 
-            masks[:, :left_context_frames, :] = 0
-            if right_context_frames > 0:
-                masks[:, -right_context_frames:, :] = 0
-        target_mask = masks[speaker_id]
-        distortion_mask = cp.sum(masks, axis=0) - target_mask
-
-        logging.debug(
-            f"Target speaker id is {speaker_id}. "
-            f"{target_mask.sum()=}, {distortion_mask.sum()=}"
-        )
+    def chunked_beamforming(self, Obs, target_mask, distortion_mask, num_chunks=1):
         logging.debug("Applying beamforming with computed masks")
+        D, T, F = Obs.shape
+        chunk_size = int(np.ceil(T / num_chunks))
         X_hat = []
         for i in range(num_chunks):
             st = i * chunk_size
@@ -464,14 +543,8 @@ class Enhancer:
             X_hat.append(X_hat_chunk)
 
         X_hat = cp.concatenate(X_hat, axis=0)
-
         logging.debug("Computing inverse STFT")
         x_hat = self.istft(X_hat)  # returns a numpy array
-
         if x_hat.ndim == 1:
             x_hat = x_hat[np.newaxis, :]
-
-        # Trim x_hat to original length of cut
-        x_hat = x_hat[:, left_context:-right_context]
-        logging.debug(f"Output signal shape is {x_hat.shape}")
-        return x_hat, target_mask
+        return x_hat
