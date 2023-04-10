@@ -272,18 +272,23 @@ def start_end_context_frames(
 ):
     assert start_context_samples >= 0
     assert end_context_samples >= 0
-
+    if stft_fading:
+        # only one border. Not two
+        start_context_samples += stft_size - stft_shift
+        end_context_samples += stft_size - stft_shift
     start_context_frames = _samples_to_stft_frames(
         start_context_samples,
         size=stft_size,
         shift=stft_shift,
-        fading=stft_fading,
+        fading=False,
+        pad=True
     )
     end_context_frames = _samples_to_stft_frames(
         end_context_samples,
         size=stft_size,
         shift=stft_shift,
-        fading=stft_fading,
+        fading=False,
+        pad=False
     )
     return start_context_frames, end_context_frames
 

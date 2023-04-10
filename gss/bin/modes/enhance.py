@@ -194,6 +194,12 @@ def mb_to_float(mb_float):
     help="['drop', 'zeros', 'keep', 'halfdrop' or float scale]",
 )
 @click.option(
+    "--bf-max-chunk",
+    type=int,
+    default=None,
+    help="Max beamforming chunk length",
+)
+@click.option(
     "--gss-use-mask-in-predict",
     is_flag=True,
     default=False,
@@ -225,7 +231,8 @@ def cuts_(
     tfweights_rspec,
     gss_target_wspec,
     bf_context_reduce,
-    gss_use_mask_in_predict
+    gss_use_mask_in_predict,
+    bf_max_chunk,
 ):
     """
     Enhance segments (represented by cuts).
@@ -296,6 +303,7 @@ def cuts_(
         tfweights_rspec=tfweights_rspec,
         gss_target_wspec=gss_target_wspec,
         bf_context_reduce=bf_context_reduce,
+        bf_max_chunk=bf_max_chunk,
         gss_use_mask_in_predict=gss_use_mask_in_predict,
     )
     if preload_audio:

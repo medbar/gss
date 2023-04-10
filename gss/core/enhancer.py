@@ -49,6 +49,7 @@ def get_enhancer(
     bss_iterations=20,
     bss_iterations_post=1,
     bf_context_reduce="zeros",
+    bf_max_chunk=None,
     postfilter=None,
     weights_cuts=None,
     activity_from_weights_thr=None,
@@ -117,6 +118,7 @@ def get_enhancer(
         activity=activity,
         gss_block=gss_block,
         bf_context_reduce=bf_context_reduce,
+        bf_max_chunk=bf_max_chunk,
         bf_block=bf_block,
         stft_size=stft_size,
         stft_shift=stft_shift,
@@ -151,6 +153,7 @@ class Enhancer:
     context_duration: float  # e.g. 15
     sampling_rate: int
 
+    bf_max_chunk: Optional[int] = None
     weights: Optional[Weights] = None
     activity_from_weights: bool = False
     dump_gss_target_posterior: Optional[WriteHelper] = None
@@ -407,6 +410,7 @@ class Enhancer:
             stft_shift=self.stft_shift,
             stft_fading=self.stft_fading,
         )
+
         logging.debug(
             f"left_context_frames: {left_context_frames}, right_context_frames: {right_context_frames}"
         )
@@ -418,6 +422,14 @@ class Enhancer:
             masks[:, :left_context_frames, :] = 0
             if right_context_frames > 0:
                 masks[:, -right_context_frames:, :] = 0
+        elif self.bf_context_reduce == 'zerosnonactive':
+            logger.debug(f"Zeroing left and right context")
+            target_mask = masks[speaker_id:speaker_id+1, :, :] * activity_freq[speaker_id:speaker_id+1, :, None]
+            masks[:, :left_context_frames, :] = 0
+            masks[:, :left_context_frames, :] = target_mask[:, :left_context_frames, :]
+            if right_context_frames > 0:
+                masks[:, -right_context_frames:, :] = 0
+                masks[:, -right_context_frames:, :] = target_mask[:, -right_context_frames:, :]
         elif self.bf_context_reduce == 'drop':
             logging.debug("Dropping context for beamforming")
             masks = masks[:, left_context_frames:, :]
@@ -439,12 +451,12 @@ class Enhancer:
             masks[:, :left_context_frames, :] = 0
             if right_context_frames > 0:
                 masks[:, -right_context_frames:, :] = 0
-            if left_context_frames > 6:
-                l = left_context_frames - 6
+            if left_context_frames > 3:
+                l = left_context_frames - 3
                 masks = masks[:, l:, :]
                 Obs = Obs[:, l:, :]
-            if right_context_frames > 6:
-                r = right_context_frames - 6
+            if right_context_frames > 3:
+                r = right_context_frames - 3
                 masks = masks[:, :-r, :]
                 Obs = Obs[:, :-r, :]
         elif isinstance(self.bf_context_reduce, float):
@@ -462,9 +474,11 @@ class Enhancer:
             f"Target speaker id is {speaker_id}. "
             f"{target_mask.sum()=}, {distortion_mask.sum()=}"
         )
-        x_hat = self.chunked_beamforming(Obs, target_mask, distortion_mask, num_chunks=num_chunks)
+        D, T, F = Obs.shape
+        bf_num_chunks = T // self.bf_max_chunk + 1 if self.bf_max_chunk else num_chunks
+        x_hat = self.chunked_beamforming(Obs, target_mask, distortion_mask, num_chunks=bf_num_chunks)
         # TODO
-        if isinstance(self.bf_context_reduce, float) or self.bf_context_reduce in ('zeros', 'keep'):
+        if isinstance(self.bf_context_reduce, float) or self.bf_context_reduce in ('zeros', 'keep', 'zerosnonactive'):
             # Trim x_hat to original length of cut
             x_hat = x_hat[:, left_context:-right_context]
             target_mask = target_mask[left_context_frames:]
@@ -477,11 +491,12 @@ class Enhancer:
             # do nothing
             # maybe we need to delete fading, but maybe not...
             fading = self.stft_size - self.stft_shift
-            if left_context_frames > 6:
+            if left_context_frames > 3:
                 x_hat = x_hat[:, fading:]
                 target_mask = target_mask[3:, :]
-            if right_context_frames > 6:
-                x_hat = x_hat[:, :-fading]
+            if right_context_frames > 3:
+                # why +shift?
+                x_hat = x_hat[:, :-(fading-self.stft_shift)]
                 target_mask = target_mask[:-3, :]
         elif self.bf_context_reduce == 'halfdrop':
             x_hat = x_hat[:, left_context//2:-right_context//2]
