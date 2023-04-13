@@ -402,6 +402,7 @@ class Enhancer:
         Obs = self.stft(obs)
         logging.debug(f"STFT shape is {Obs.shape}")
         masks = self.chunked_gss(Obs, activity_freq, weights=weights, num_chunks=num_chunks)
+        # mask.shape is K, T, F
 
         left_context_frames, right_context_frames = start_end_context_frames(
             left_context,
