@@ -116,9 +116,14 @@ class TFArkWeights:
             speaker_id = idx[sup["speaker"]]
             sup_dur_frames = self._sec_to_stft_frames(sup["duration"], fading=False)
             weight_segment = sup["tf_prob"]
-            assert (
-                sup_dur_frames == weight_segment.shape[0]
-            ), f"{sup_dur_frames} {weight_segment.shape}"
+            # weight_segment - is librosa stft with 1024, 256, central=True, pad='constant'
+            # so signal paded by:
+            #    512 (2 frames) in the left
+            #    1 not full (or pad) and one pad on the right
+            assert 2 + sup_dur_frames <  weight_segment.shape[0], (
+                f"{sup_dur_frames} {weight_segment.shape}"
+            )
+            weight_segment = weight_segment[2:2+sup_dur_frames]
             start_frame = 0
             end_frame = cut_num_frames
             # finding start frame
@@ -144,12 +149,7 @@ class TFArkWeights:
                     f"End {offset_frames = } frames."
                 )
                 weight_segment = weight_segment[:offset_frames]
-            # Note: it's because pading problem
             end_frame = start_frame + weight_segment.shape[0]
-            # if abs(end_frame - start_frame - weight_segment.shape[-1]) == 1:
-            #     logger.warning(f"Found pading problem. Paste {weight_segment.shape=} "
-            #                    f"{start_frame=}:{end_frame=}")
-            #     end_frame = start_frame + weight_segment.shape[-1]
             assert (
                 end_frame - start_frame == weight_segment.shape[0]
             ), f"{end_frame=} {start_frame=} {weight_segment.shape[0]=}"
