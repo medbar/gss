@@ -136,9 +136,8 @@ class Weights:
                     f"{start_frame=}:{end_frame=}"
                 )
         weights = np.stack(weights)
-        assert (
-            num_sups > 0
-        ), f"Weights for ({session_id=}, {start_time=}, {duration=}) does not exist. Wrong weights manifest?"
+        if num_sups == 0:
+            logger.warning(f"Weights for ({session_id=}, {start_time=}, {duration=}) does not exist. Wrong weights manifest?")
         logger.debug(
             f"Weights for ({session_id=}, {start_time=}, {duration=}) contains in {num_sups} supervisions. "
             f"Total supervisions duration {total_frames} frames."
